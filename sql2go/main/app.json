@@ -1,0 +1,40 @@
+{
+  "?": "数据库连接字符串，url.Schema指定driver，目前只有mysql",
+  "dbUrl": "mysql://root:123456@tcp(192.168.1.66)/db2go_test",
+  "?": "额外(不在mysql/parser.go定义functions中)的解析sql的函数，函数名:返回类型",
+  "func": {
+    "abs": "float64",
+    "avg": "float64",
+    "count": "int64"
+  },
+  "?": "生成代码根目录，空则使用程序当前目录",
+  "dir": ".",
+  "?": "db代码包名，目录名，空则使用数据库名称",
+  "pkg": "dao",
+  "?": "数据库表名，生成Struct.S/I/U/D，Count，List的默认代码",
+  "default": [
+  ],
+  "?": "",
+  "sql": [
+    {
+      "?": "sql，会调用prepare检查",
+      "sql": "delete from t4 where c3=?",
+      "?": "自定义函数名称，覆写自动生成的函数名",
+      "func": "DeleteAll",
+      "?": "自定义函数入参名称，覆写自动生成的函数名",
+      "param": [
+        "id"
+      ]
+    },
+    {
+      "?": "sql，会调用prepare检查，会在添加tx*sql.Tx到第一个参数",
+      "tx": "delete from t2 where name=?"
+    },
+    {
+      "sql": "delete from t2 where id=? or name='1'"
+    },
+    {
+      "sql": "update t5 set c1=?, c2=1,c3=3+?, c4=(4*c1) where id=0"
+    }
+  ]
+}
