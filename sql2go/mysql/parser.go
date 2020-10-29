@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -731,28 +732,29 @@ func (p *parser) insertValues(query *InsertStmt) {
 }
 
 type SelectStmt struct {
-	Distinct string
-	Column   []*SelectAliasStmt
-	Table    SelectAliasStmt
-	Join     *SelectAliasStmt
-	On       interface{}
-	Where    interface{}
-	GroupBy  []string
-	Having   interface{}
-	Union    *SelectStmt
-	OrderBy  []string
-	Order    string
-	Limit    []string
+	Distinct   string
+	Column     []*AliasStmt
+	Table      string
+	TableAlias string
+	Join       string
+	JoinAlias  string
+	On         interface{}
+	Where      interface{}
+	GroupBy    []string
+	Having     interface{}
+	Union      *SelectStmt
+	OrderBy    []string
+	Order      string
+	Limit      []string
 }
 
-type SelectAliasStmt struct {
+type AliasStmt struct {
 	Expression interface{}
 	Alias      string
 }
 
-// select [all|distinct] *|expression[[as]alias][, ...]
-// from {table[[as]alias]|select [as]alias}
-// [{[natural]{left|right}[outer]}] join table alias {on condition}]
+// select [all|distinct] *|column|function [[as]alias][, ...] from table[[as]alias]
+// [{[natural]{left|right}[outer]}] join table[[as]alias] {on condition}]
 // [where {condition}]
 // [group by column [, ...]]
 // [having condition]
@@ -800,16 +802,17 @@ func (p *parser) selectBase(query *SelectStmt) {
 	}
 	// expression[[as]alias][, ...] from
 	p.selectColumn(query)
-	// {table[[as]alias]|select [as]alias}
-	p.selectAlias(&query.Table)
+	// table[[as]alias]
+	query.Table = p.mustIdentifier()
+	query.TableAlias = p.selectAlias()
 	if len(p.token) < 1 {
 		return
 	}
 	// [{{left|right}[outer]|natural|[full]outer}] join table alias {on condition}]
 	if strings.Contains(strings.ToLower(p.token[0]), "join") {
 		p.record()
-		query.Join=new(SelectAliasStmt)
-		p.selectAlias(query.Join)
+		query.Join = p.mustIdentifier()
+		query.JoinAlias = p.selectAlias()
 		if p.ifMatch("on") {
 			query.On = p.ExpressionStmt()
 		}
@@ -838,27 +841,70 @@ func (p *parser) selectBase(query *SelectStmt) {
 	}
 }
 
-func (p *parser) selectTable() (string, string) {
-	table := p.mustIdentifier()
+func (p *parser) selectAlias() string {
 	if p.ifMatch("as") {
-		alias := p.mustIdentifier()
-		return table, alias
+		return p.mustIdentifier()
 	}
 	if len(p.token) > 0 && isIdentifier(p.token[0]) {
-		return table, p.record()
+		return p.record()
 	}
-	return table, ""
+	return ""
 }
 
+var (
+	errColumnType = errors.New("select field only support one of *|column|function")
+)
+
 func (p *parser) selectColumn(query *SelectStmt) {
+	// 不能有相同的column，否则对应不了struct
+	sameColumn := make(map[string]int)
+	sameAlias := make(map[string]int)
 	for len(p.token) > 0 {
-		t := p.token[0]
-		column := new(SelectAliasStmt)
-		if t == "*" {
-			column.Expression = t
-			p.record()
-		} else {
-			p.selectAlias(column)
+		column := new(AliasStmt)
+		if p.token[0] == "*" {
+			if len(query.Column) > 0 {
+				panic(errColumnType)
+			}
+			column.Expression = p.record()
+			if p.ifMatch("from") {
+				panic(p.stmtError())
+			}
+			query.Column = append(query.Column, column)
+			return
+		}
+		column.Expression = p.ExpressionStmt()
+		switch name := column.Expression.(type) {
+		case string:
+			_, o := sameColumn[name]
+			if o {
+				panic(fmt.Errorf("unsupported same column '%s'", name))
+			}
+			sameColumn[name] = 1
+			if len(query.Column) > 0 {
+				switch query.Column[0].Expression.(type) {
+				case string:
+				default:
+					panic(errColumnType)
+				}
+			}
+		case *FuncExpressionStmt:
+			if len(query.Column) > 0 {
+				switch query.Column[0].Expression.(type) {
+				case *FuncExpressionStmt:
+				default:
+					panic(errColumnType)
+				}
+			}
+		default:
+			panic(errColumnType)
+		}
+		column.Alias = p.selectAlias()
+		if column.Alias != "" {
+			_, o := sameAlias[column.Alias]
+			if o {
+				panic(fmt.Errorf("unsupported same alias '%s'", column.Alias))
+			}
+			sameAlias[column.Alias] = 1
 		}
 		query.Column = append(query.Column, column)
 		// 如果是from，退出
@@ -866,19 +912,5 @@ func (p *parser) selectColumn(query *SelectStmt) {
 			return
 		}
 		p.mustMatch(",")
-	}
-}
-
-func (p *parser) selectAlias(alias *SelectAliasStmt) {
-	alias.Expression = p.ExpressionStmt()
-	if len(p.token) < 1 {
-		return
-	}
-	if p.ifMatch("as") {
-		alias.Alias = p.mustIdentifier()
-		return
-	}
-	if isIdentifier(p.token[0]) {
-		alias.Alias = p.record()
 	}
 }

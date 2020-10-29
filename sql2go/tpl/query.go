@@ -49,10 +49,6 @@ func (t *Query) String() string {
 	return tplString(t)
 }
 
-func (t *Query) Stmt() string {
-	return "Stmt" + t.Func
-}
-
 func (t *Query) ReturnType() string {
 	s := "[]" + t.Return[0]
 	for i := 1; i < len(t.Return); i++ {
@@ -98,10 +94,6 @@ func (t *QueryRow) Execute(w io.Writer) error {
 
 func (t *QueryRow) String() string {
 	return tplString(t)
-}
-
-func (t *QueryRow) Stmt() string {
-	return "Stmt" + t.Func
 }
 
 func (t *QueryRow) ReturnString() string {
@@ -156,10 +148,6 @@ func (t *StructQuery) String() string {
 	return tplString(t)
 }
 
-func (t *StructQuery) Stmt() string {
-	return "Stmt" + t.Struct + t.Func
-}
-
 const tplStrStructQueryRow = `// {{.Sql}}
 func (m *{{.Struct}}) {{.Func}}({{.TPLParam}}) error {
 	return {{.TPLStmt}}.QueryRow(
@@ -186,8 +174,4 @@ func (t *StructQueryRow) Execute(w io.Writer) error {
 
 func (t *StructQueryRow) String() string {
 	return tplString(t)
-}
-
-func (t *StructQueryRow) Stmt() string {
-	return "Stmt" + t.Struct + t.Func
 }

@@ -61,11 +61,11 @@ type FuncTPL interface {
 	TPL
 	SQL() string
 	Stmt() string
+	SetStmt(name string)
 	IsTx() bool
 	FuncName() string
 	SetFuncName(name string)
 	SetParamName(names []string)
-	//String() string
 }
 
 type StructTPL interface {
@@ -74,11 +74,12 @@ type StructTPL interface {
 }
 
 type funcTPL struct {
-	Tx     bool
-	Sql    string
-	Func   string
-	Param  []string
-	Struct string
+	Tx       bool
+	Sql      string
+	Func     string
+	Param    []string
+	Struct   string
+	StmtName string
 }
 
 func (t *funcTPL) StructName() string {
@@ -87,6 +88,14 @@ func (t *funcTPL) StructName() string {
 
 func (t *funcTPL) SQL() string {
 	return t.Sql
+}
+
+func (t *funcTPL) SetStmt(name string) {
+	t.StmtName = name
+}
+
+func (t *funcTPL) Stmt() string {
+	return t.StmtName
 }
 
 func (t *funcTPL) IsTx() bool {
@@ -127,9 +136,9 @@ func (t *funcTPL) TPLParam() string {
 
 func (t *funcTPL) TPLStmt() string {
 	if t.Tx {
-		return "tx.Stmt(" + "Stmt" + t.Struct + t.Func + ")"
+		return "tx.Stmt(" + t.StmtName + ")"
 	}
-	return "Stmt" + t.Struct + t.Func
+	return t.StmtName
 }
 
 type Arg struct {

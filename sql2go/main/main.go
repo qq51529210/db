@@ -140,15 +140,8 @@ func genCodeMYSQL(dbUrl string, c *cfg) {
 	}
 	// sql生成FuncTPL
 	for _, s := range c.SQL {
-		tp, err := code.FuncTPL(s.Sql, s.IsTx)
+		_, err := code.FuncTPL(s.Sql, s.Func, s.IsTx, s.Param)
 		log.CheckError(err)
-		// 替换自定义名称
-		if s.Func != "" {
-			code.SetFuncName(tp, s.Func)
-		}
-		if len(s.Param) > 0 {
-			tp.SetParamName(s.Param)
-		}
 	}
 	// 保存
 	log.CheckError(code.SaveFiles(c.Dir))

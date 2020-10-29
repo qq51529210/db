@@ -26,10 +26,6 @@ func (t *Exec) String() string {
 	return tplString(t)
 }
 
-func (t *Exec) Stmt() string {
-	return "Stmt" + t.Func
-}
-
 const tplStrStructExec = `// {{.Sql}}
 func (m *{{.Struct}}) {{.Func}}({{.TPLParam}}) (sql.Result, error) {
 	return {{.TPLStmt}}.Exec(
@@ -51,8 +47,4 @@ func (t *StructExec) Execute(w io.Writer) error {
 
 func (t *StructExec) String() string {
 	return tplString(t)
-}
-
-func (t *StructExec) Stmt() string {
-	return "Stmt" + t.Struct + t.Func
 }

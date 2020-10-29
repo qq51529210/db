@@ -15,7 +15,7 @@ import (
 var (
 	DB *sql.DB
 	{{- range $k,$v := .Stmt}}
-	{{$k}} *sql.Stmt
+	{{$k}} *sql.Stmt // {{$v}}
 	{{- end}}
 )
 
