@@ -134,7 +134,12 @@ func genCodeMYSQL(dbUrl string, c *cfg) {
 		mysql.AddFunction(k, v)
 	}
 	// 默认FuncTPL
+	same := make(map[string]int)
 	for _, t := range c.Def {
+		if _, ok := same[t]; ok {
+			continue
+		}
+		same[t] = 1
 		_, err := code.DefaultFuncTPLs(t)
 		log.CheckError(err)
 	}

@@ -141,6 +141,7 @@ type holder struct {
 	column   *db2go.Column
 	name     string
 	operator string
+	sub      bool
 }
 
 type holders struct {
@@ -149,11 +150,11 @@ type holders struct {
 	join       *db2go.Table
 	joinAlias  string
 	holder     []*holder
-	sub        *holders
 }
 
-func (h *holders) addColumn(column, operator string) {
+func (h *holders) addColumn(column, operator string, sub bool) {
 	hh := new(holder)
+	hh.sub = sub
 	hh.operator = operator
 	if column == "" {
 		hh.name = "arg"
@@ -216,26 +217,42 @@ func (h *holders) toArgs() []*tpl.Arg {
 	var args []*tpl.Arg
 	for _, hh := range h.holder {
 		arg := new(tpl.Arg)
-		if hh.column != nil {
-			arg.Name = SnakeCaseToPascalCase(hh.column.Name())
-			arg.IsField = true
-		} else {
+		if hh.column == nil {
 			arg.Name = SnakeCaseToCamelCase(hh.name)
+		} else {
+			if hh.sub {
+				arg.Name = SnakeCaseToCamelCase(hh.table.Name()) + SnakeCaseToPascalCase(hh.column.Name())
+			} else {
+				if h.join == nil {
+					arg.Name = SnakeCaseToPascalCase(hh.column.Name())
+				} else {
+					arg.Name = SnakeCaseToPascalCase(hh.table.Name()) + "." + SnakeCaseToPascalCase(hh.column.Name())
+				}
+				arg.IsField = true
+			}
 		}
 		args = append(args, arg)
 	}
+	return h.checkArgs(args)
+}
+
+func (h *holders) checkArgs(args []*tpl.Arg) []*tpl.Arg {
 	// 如果有相同的字段，两个都转成参数
-	field := make(map[string]*tpl.Arg)
-	for _, a := range args {
+	field := make(map[string]int)
+	for i, a := range args {
 		if a.IsField {
-			aa, ok := field[a.Name]
+			n, ok := field[a.Name]
 			if ok {
 				a.IsField = false
-				a.Name = PascalCaseToSnakeCase(a.Name)
-				aa.IsField = false
-				aa.Name = PascalCaseToSnakeCase(aa.Name)
+				args[n].IsField = false
+				if h.join == nil {
+					a.Name = SnakeCaseToPascalCase(h.holder[i].column.Name())
+				} else {
+					a.Name = SnakeCaseToCamelCase(h.holder[i].table.Name()) + SnakeCaseToPascalCase(h.holder[i].column.Name())
+				}
+				args[n].Name = a.Name
 			} else {
-				field[a.Name] = a
+				field[a.Name] = i
 			}
 		}
 	}
@@ -254,53 +271,6 @@ func (h *holders) toArgs() []*tpl.Arg {
 		}
 	}
 	return args
-}
-
-func (h *holders) toJoinArgs() []*tpl.Arg {
-	var args []*tpl.Arg
-	return args
-}
-
-func newFuncColumn(table, join *db2go.Table, query *SelectStmt, column string) *funcColumn {
-	c := new(funcColumn)
-	p := strings.Split(column, ".")
-	if len(p) == 2 {
-		if p[0] == query.Table || p[0] == query.TableAlias {
-			c.table = table
-			c.column = table.GetColumn(p[1])
-			return c
-		}
-		if join != nil {
-			if p[0] == query.Join || p[0] == query.JoinAlias {
-				c.table = join
-				c.column = join.GetColumn(p[1])
-				return c
-			}
-		}
-	}
-	c.table = table
-	c.column = table.GetColumn(column)
-	return c
-}
-
-type funcColumn struct {
-	table  *db2go.Table
-	column *db2go.Column
-	alias  string
-}
-
-func (c *funcColumn) Field() string {
-	if c.table != nil {
-		return SnakeCaseToPascalCase(c.table.Name()) + "." + SnakeCaseToPascalCase(c.column.Name())
-	}
-	return SnakeCaseToPascalCase(c.column.Name())
-}
-
-func (c *funcColumn) Param() string {
-	if c.table != nil {
-		return SnakeCaseToCamelCase(c.table.Name()) + SnakeCaseToPascalCase(c.column.Name())
-	}
-	return SnakeCaseToCamelCase(c.column.Name())
 }
 
 type Code interface {
@@ -629,92 +599,202 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 	t, j, structName := c.funcSelectTable(q)
 	// 占位符
 	var h holders
-	c.parseSelectHolder(&h, q)
-	// 函数名
+	h.table = t
+	h.join = j
+	h.tableAlias = q.TableAlias
+	h.joinAlias = q.JoinAlias
+	c.parseSelectHolders(&h, q, false)
 	// 是column还是function
 	switch q.Column[0].Expression.(type) {
 	case string:
-		c.funcSelectColumns(q, t, j)
-		//columns := c.funcSelectColumns(q, t, j)
-		//structQueryRow := false
-		//var byFields []string
-		//for _, a := range h.arg {
-		//	byFields = append(byFields, a.Name)
-		//	if j == nil {
-		//		col := t.GetColumn(PascalCaseToSnakeCase(a.Name))
-		//		structQueryRow =
-		//	}
-		//}
-		//if structQueryRow {
-		//	tp := new(tpl.StructQueryRow)
-		//	tp.Tx = tx
-		//	tp.Sql = sql
-		//	tp.Param = pick0(h.param)
-		//	tp.Struct = structName
-		//	tp.StmtName = c.funcStmtName()
-		//	tp.Query = h.arg
-		//	for _, col := range columns {
-		//		if j == nil {
-		//			tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.column.Name()))
-		//		} else {
-		//			tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.table.Name())+"."+
-		//				SnakeCaseToPascalCase(col.column.Name()))
-		//		}
-		//	}
-		//	if len(byFields) > 0 || len(h.param) > 0 {
-		//		funcName.WriteString("By")
-		//		funcName.WriteString(strings.Join(byFields, ""))
-		//	}
-		//	tp.Func = funcName.String()
-		//	return tp
-		//}
+		columns := c.funcSelectColumns(q, t, j)
+		if j != nil {
+			tp := new(tpl.StructQuery)
+			tp.Tx = tx
+			tp.Sql = sql
+			tp.Struct = structName
+			tp.StmtName = c.funcStmtName()
+			tp.Arg = h.toArgs()
+			for _, col := range columns {
+				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[0])+"."+SnakeCaseToPascalCase(col[1]))
+			}
+			// 函数名
+			var tableFields, joinFields []string
+			for _, col := range columns {
+				if col[0] == t.Name() {
+					tableFields = append(tableFields, col[1])
+				} else {
+					joinFields = append(joinFields, col[1])
+				}
+			}
+			var funcName strings.Builder
+			funcName.WriteString("Select")
+			// Field
+			if len(tableFields) > 0 {
+				funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
+				funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
+			}
+			if len(joinFields) > 0 {
+				funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
+				funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+			}
+			// By
+			tableFields = tableFields[:0]
+			joinFields = joinFields[:0]
+			params := make([]string, 0)
+			for i, a := range tp.Arg {
+				if a.IsField {
+					if h.holder[i].table == t {
+						tableFields = append(tableFields, h.holder[i].column.Name())
+					} else {
+						joinFields = append(joinFields, h.holder[i].column.Name())
+					}
+				} else {
+					params = append(params, a.Name)
+				}
+			}
+			if len(tableFields) > 0 || len(joinFields) > 0 || len(params) > 0 {
+				funcName.WriteString("By")
+				if len(tableFields) > 0 {
+					funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
+					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
+				}
+				if len(joinFields) > 0 {
+					funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
+					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+				}
+				if len(params) > 0 {
+					funcName.WriteString(JoinCamelCaseToPascalCase(params))
+				}
+			}
+			tp.Func = funcName.String()
+			return tp
+		}
+		// 检查条件参数，是否唯一列，而且运算符是'='，才能用tpl.StructQueryRow
+		structQueryRow := false
+		args := h.toArgs()
+		mul := make([]int, 0)
+		for i, a := range args {
+			if a.IsField {
+				if h.holder[i].operator == "=" {
+					if h.holder[i].column.IsPrimaryKey() ||
+						h.holder[i].column.IsUnique() {
+						structQueryRow = true
+						break
+					}
+					if h.holder[i].column.IsMulUnique() {
+						mul = append(mul, i)
+					}
+				}
+			}
+		}
+		// 联合唯一
+		if len(mul) > 0 {
+			// t表的所有联合唯一列
+			mulColumn, _ := t.MulUniqueColumns()
+			// 如果不相等，肯定不包含了
+			if len(mul) == len(mulColumn) {
+				for len(mul) > 0 {
+					// mul的第一项是否在mulColumn中
+					ok := false
+					for i, mc := range mulColumn {
+						if mc == h.holder[mul[0]].column {
+							mulColumn = append(mulColumn[:i], mulColumn[i+1:]...)
+							ok = true
+							break
+						}
+					}
+					if !ok {
+						break
+					}
+					// 在，去掉第一项，继续
+					mul = mul[1:]
+					// 完全匹配
+					if len(mulColumn) == 0 {
+						structQueryRow = true
+					}
+				}
+			}
+		}
+		if structQueryRow {
+			tp := new(tpl.StructQueryRow)
+			tp.Tx = tx
+			tp.Sql = sql
+			tp.Struct = structName
+			tp.StmtName = c.funcStmtName()
+			tp.Arg = args
+			for _, col := range columns {
+				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[1]))
+			}
+			// 函数名
+			var funcName strings.Builder
+			funcName.WriteString("Select")
+			// Field
+			funcName.WriteString(strings.Join(tp.Scan, ""))
+			// By
+			fields, params := tpl.ClassifyArgs(tp.Arg)
+			if len(fields) > 0 || len(params) > 0 {
+				funcName.WriteString("By")
+				funcName.WriteString(strings.Join(fields, ""))
+				funcName.WriteString(JoinCamelCaseToPascalCase(params))
+			}
+			tp.Func = funcName.String()
+			return tp
+		}
+		// 没有找到唯一列，那么所有的列全转成参数
+		for i, a := range args {
+			if a.IsField {
+				a.IsField = false
+				a.Name = SnakeCaseToCamelCase(h.holder[i].column.Name()) + operatorsNames[h.holder[i].operator]
+			}
+		}
+		args = h.checkArgs(args)
 		tp := new(tpl.StructQuery)
-		//tp.Tx = tx
-		//tp.Sql = sql
-		//tp.Param = pick0(h.param)
-		//tp.Struct = structName
-		//tp.StmtName = c.funcStmtName()
-		//for _, col := range columns {
-		//	if j == nil {
-		//		tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.column.Name()))
-		//	} else {
-		//		tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.table.Name())+"."+
-		//			SnakeCaseToPascalCase(col.column.Name()))
-		//	}
-		//}
-		//funcName.WriteString(structName)
-		//var byFields []string
-		//for _, a := range h.arg {
-		//	byFields = append(byFields, a.Name)
-		//}
-		//if len(byFields) > 0 || len(h.param) > 0 {
-		//	funcName.WriteString("By")
-		//	funcName.WriteString(strings.Join(byFields, ""))
-		//}
-		//tp.Func = funcName.String()
+		tp.Tx = tx
+		tp.Sql = sql
+		tp.Struct = structName
+		tp.StmtName = c.funcStmtName()
+		tp.Arg = args
+		for _, col := range columns {
+			tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[1]))
+		}
+		// 函数名
+		var funcName strings.Builder
+		funcName.WriteString("Select")
+		funcName.WriteString(structName)
+		// Field
+		funcName.WriteString(strings.Join(tp.Scan, ""))
+		// By
+		params := tpl.PickParams(tp.Arg)
+		if len(params) > 0 {
+			funcName.WriteString("By")
+			funcName.WriteString(JoinCamelCaseToPascalCase(params))
+		}
+		tp.Func = funcName.String()
 		return tp
 	default:
 		// 函数
-		//columns := c.funcSelectFuncColumns(q)
+		columns := c.funcSelectFuncColumns(q)
 		tp := new(tpl.QueryRow)
 		tp.Tx = tx
 		tp.Sql = sql
 		tp.Struct = structName
 		tp.StmtName = c.funcStmtName()
-		//tp.Param = h.tplParams()
-		//for _, name := range columns {
-		//	tp.Return = append(tp.Return, functions[name])
-		//}
-		//// 函数名称
-		//var funcName strings.Builder
-		//funcName.WriteString("Select")
-		//funcName.WriteString(structName)
-		//funcName.WriteString(JoinSnakeCaseToPascalCase(columns))
-		//if len(h.param) > 0 {
-		//	funcName.WriteString("By")
-		//	funcName.WriteString(JoinCamelCaseToPascalCase(tp.Param))
-		//}
-		//tp.Func = funcName.String()
+		tp.Arg = h.toArgs()
+		for _, name := range columns {
+			tp.Return = append(tp.Return, functions[name])
+		}
+		// 函数名称
+		var funcName strings.Builder
+		funcName.WriteString("Select")
+		funcName.WriteString(structName)
+		funcName.WriteString(JoinSnakeCaseToPascalCase(columns))
+		params := tpl.PickParams(tp.Arg)
+		if len(params) > 0 {
+			funcName.WriteString("By")
+			funcName.WriteString(JoinCamelCaseToPascalCase(params))
+		}
+		tp.Func = funcName.String()
 		return tp
 	}
 }
@@ -740,8 +820,8 @@ func (c *code) funcSelectTable(q *SelectStmt) (t, j *db2go.Table, structName str
 	return
 }
 
-func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) []*funcColumn {
-	var columns []*funcColumn
+func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
+	var columns [][2]string
 	for _, col := range q.Column {
 		v := col.Expression.(string)
 		if v == "*" {
@@ -749,22 +829,40 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) []*funcColumn
 			if j != nil {
 				// 添加所有的列
 				for _, col := range t.Columns() {
-					columns = append(columns, &funcColumn{table: t, column: col})
+					columns = append(columns, [2]string{t.Name(), col.Name()})
 				}
 				for _, col := range j.Columns() {
-					columns = append(columns, &funcColumn{table: j, column: col})
+					columns = append(columns, [2]string{j.Name(), col.Name()})
 				}
 			} else {
 				// 添加所有的列
 				for _, col := range t.Columns() {
-					columns = append(columns, &funcColumn{table: t, column: col})
+					columns = append(columns, [2]string{"", col.Name()})
 				}
 			}
 			break
 		}
 		// 普通的列
-		col := newFuncColumn(t, j, q, v)
-		columns = append(columns, col)
+		p := strings.Split(v, ".")
+		if j != nil {
+			if len(p) != 2 {
+				panic(errColumnType)
+			}
+			if t.GetColumn(p[1]) != nil {
+				columns = append(columns, [2]string{t.Name(), p[1]})
+			} else {
+				columns = append(columns, [2]string{j.Name(), p[1]})
+			}
+		} else {
+			if len(p) == 2 {
+				v = p[1]
+			}
+			if t.GetColumn(v) != nil {
+				columns = append(columns, [2]string{t.Name(), v})
+			} else {
+				panic(errColumnType)
+			}
+		}
 	}
 	return columns
 }
@@ -794,7 +892,7 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 		// 解析占位符
 		var h holders
 		h.table = t
-		c.parseSelectHolder(&h, value)
+		c.parseSelectHolders(&h, value, true)
 		tp := new(tpl.Exec)
 		tp.Tx = tx
 		tp.Sql = sql
@@ -828,10 +926,10 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 			switch s := v.(type) {
 			case string:
 				if s == "?" {
-					h.addColumn(columns[i], "=")
+					h.addColumn(columns[i], "=", false)
 				}
 			default:
-				c.parseHolders(&h, v)
+				c.parseHolders(&h, v, false)
 			}
 		}
 		tp := new(tpl.StructExec)
@@ -855,7 +953,7 @@ func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.FuncTPL {
 	var h holders
 	h.table = t
 	// 解析where占位符
-	c.parseHolders(&h, q.Where)
+	c.parseHolders(&h, q.Where, false)
 	// 模板
 	tp := new(tpl.StructExec)
 	tp.Tx = tx
@@ -883,9 +981,9 @@ func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.FuncTPL {
 	h1.table = t
 	h2.table = t
 	for _, col := range q.Column {
-		c.parseHolders(&h1, col)
+		c.parseHolders(&h1, col, false)
 	}
-	c.parseHolders(&h2, q.Where)
+	c.parseHolders(&h2, q.Where, false)
 	// 模板
 	tp := new(tpl.StructExec)
 	tp.Tx = tx
@@ -922,7 +1020,7 @@ func (c *code) funcStmtName() string {
 	return "stmt" + strconv.Itoa(len(c.tplInit.Stmt))
 }
 
-func (c *code) parseHolders(h *holders, v interface{}) {
+func (c *code) parseHolders(h *holders, v interface{}, sub bool) {
 	if v == nil {
 		return
 	}
@@ -930,87 +1028,85 @@ func (c *code) parseHolders(h *holders, v interface{}) {
 	case string:
 		// 单个，没有列名和操作符
 		if v == "?" {
-			h.addColumn("", "")
+			h.addColumn("", "", sub)
 		}
 	case *ExpressionStmt:
 		left, ok := v.Left.(string)
 		if ok {
 			if left == "?" {
-				h.addColumn("", "")
+				h.addColumn("", "", sub)
 			}
 		} else {
-			c.parseHolders(h, v.Left)
+			c.parseHolders(h, v.Left, sub)
 		}
 		right, ok := v.Right.(string)
 		if ok {
 			if right == "?" {
 				if left != "" {
-					h.addColumn(left, v.Operator)
+					h.addColumn(left, v.Operator, sub)
 				} else {
-					h.addColumn("", "")
+					h.addColumn("", "", sub)
 				}
 			}
 		} else {
-			c.parseHolders(h, v.Right)
+			c.parseHolders(h, v.Right, sub)
 		}
 	case *BoolExpressionStmt:
-		c.parseHolders(h, v.Value)
+		c.parseHolders(h, v.Value, sub)
 	case *FuncExpressionStmt:
-		c.parseHolders(h, v.Value)
+		c.parseHolders(h, v.Value, sub)
 	case *SelectStmt:
-		h.sub = new(holders)
-		c.parseSelectHolder(h.sub, v)
+		c.parseSelectHolders(h, v, true)
 	case []interface{}:
 		for _, i := range v {
-			c.parseHolders(h, i)
+			c.parseHolders(h, i, sub)
 		}
 	}
 }
 
-func (c *code) parseSelectHolder(h *holders, q *SelectStmt) {
+func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	h.table = c.funcGetTable(q.Table)
 	if q.Join != "" {
 		h.join = c.funcGetTable(q.Join)
 	}
 	// distinct
 	if q.Distinct == "?" {
-		h.addColumn(q.Table+"_distinct", "")
+		h.addColumn(q.Table+"_distinct", "", sub)
 	}
 	// columns
 	for _, col := range q.Column {
-		c.parseHolders(h, col.Expression)
+		c.parseHolders(h, col.Expression, sub)
 	}
 	// on
-	c.parseHolders(h, q.On)
+	c.parseHolders(h, q.On, sub)
 	// where
-	c.parseHolders(h, q.Where)
+	c.parseHolders(h, q.Where, sub)
 	// group by
 	for _, s := range q.GroupBy {
 		if s == "?" {
-			h.addColumn(q.Table+"_group", "")
+			h.addColumn(q.Table+"_group", "", sub)
 		}
 	}
 	// having
-	c.parseHolders(h, q.Having)
+	c.parseHolders(h, q.Having, sub)
 	// union
 	if q.Union != nil {
-		h.sub = new(holders)
-		c.parseSelectHolder(h.sub, q.Union)
+		c.parseSelectHolders(h, q.Union, true)
 	}
 	// order by
 	for _, s := range q.OrderBy {
 		if s == "?" {
-			h.addColumn(q.Table+"_order", "")
+			h.addColumn(q.Table+"_order", "", sub)
 		}
 	}
 	// asc/desc
 	if q.Order == "?" {
-		h.addColumn(q.Table+"_sort", "")
+		h.addColumn(q.Table+"_sort", "", sub)
 	}
 	// limit
 	for _, s := range q.Limit {
 		if s == "?" {
-			h.addColumn(q.Table+"_limit", "")
+			h.addColumn(q.Table+"_limit", "", sub)
 		}
 	}
 }
