@@ -152,7 +152,7 @@ type holders struct {
 	holder     []*holder
 }
 
-func (h *holders) addColumn(column, operator string, sub bool) {
+func (h *holders) AddColumn(column, operator string, sub bool) {
 	hh := new(holder)
 	hh.sub = sub
 	hh.operator = operator
@@ -213,7 +213,7 @@ func (h *holders) addColumn(column, operator string, sub bool) {
 	h.holder = append(h.holder, hh)
 }
 
-func (h *holders) toArgs() []*tpl.Arg {
+func (h *holders) ToArgs() []*tpl.Arg {
 	var args []*tpl.Arg
 	for _, hh := range h.holder {
 		arg := new(tpl.Arg)
@@ -233,10 +233,10 @@ func (h *holders) toArgs() []*tpl.Arg {
 		}
 		args = append(args, arg)
 	}
-	return h.checkArgs(args)
+	return args
 }
 
-func (h *holders) checkArgs(args []*tpl.Arg) []*tpl.Arg {
+func (h *holders) CheckArgs(args []*tpl.Arg) []*tpl.Arg {
 	// 如果有相同的字段，两个都转成参数
 	field := make(map[string]int)
 	for i, a := range args {
@@ -608,13 +608,21 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 	switch q.Column[0].Expression.(type) {
 	case string:
 		columns := c.funcSelectColumns(q, t, j)
+		args := h.ToArgs()
 		if j != nil {
+			// 把所有的字段变成参数
+			for i, a := range args {
+				if a.IsField {
+					a.IsField = false
+					a.Name = SnakeCaseToCamelCase(h.holder[i].table.Name()) + SnakeCaseToPascalCase(h.holder[i].column.Name())
+				}
+			}
 			tp := new(tpl.StructQuery)
 			tp.Tx = tx
 			tp.Sql = sql
 			tp.Struct = structName
 			tp.StmtName = c.funcStmtName()
-			tp.Arg = h.toArgs()
+			tp.Arg = h.CheckArgs(args)
 			for _, col := range columns {
 				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[0])+"."+SnakeCaseToPascalCase(col[1]))
 			}
@@ -672,7 +680,6 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 		}
 		// 检查条件参数，是否唯一列，而且运算符是'='，才能用tpl.StructQueryRow
 		structQueryRow := false
-		args := h.toArgs()
 		mul := make([]int, 0)
 		for i, a := range args {
 			if a.IsField {
@@ -722,7 +729,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 			tp.Sql = sql
 			tp.Struct = structName
 			tp.StmtName = c.funcStmtName()
-			tp.Arg = args
+			tp.Arg = h.CheckArgs(args)
 			for _, col := range columns {
 				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[1]))
 			}
@@ -748,7 +755,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 				a.Name = SnakeCaseToCamelCase(h.holder[i].column.Name()) + operatorsNames[h.holder[i].operator]
 			}
 		}
-		args = h.checkArgs(args)
+		args = h.CheckArgs(args)
 		tp := new(tpl.StructQuery)
 		tp.Tx = tx
 		tp.Sql = sql
@@ -780,7 +787,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 		tp.Sql = sql
 		tp.Struct = structName
 		tp.StmtName = c.funcStmtName()
-		tp.Arg = h.toArgs()
+		tp.Arg = h.CheckArgs(h.ToArgs())
 		for _, name := range columns {
 			tp.Return = append(tp.Return, functions[name])
 		}
@@ -837,7 +844,7 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 			} else {
 				// 添加所有的列
 				for _, col := range t.Columns() {
-					columns = append(columns, [2]string{"", col.Name()})
+					columns = append(columns, [2]string{t.Name(), col.Name()})
 				}
 			}
 			break
@@ -848,10 +855,19 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 			if len(p) != 2 {
 				panic(errColumnType)
 			}
-			if t.GetColumn(p[1]) != nil {
-				columns = append(columns, [2]string{t.Name(), p[1]})
-			} else {
-				columns = append(columns, [2]string{j.Name(), p[1]})
+			if p[0] == q.Table || p[0] == q.TableAlias {
+				if t.GetColumn(p[1]) != nil {
+					columns = append(columns, [2]string{t.Name(), p[1]})
+				} else {
+					columns = append(columns, [2]string{j.Name(), p[1]})
+				}
+			}
+			if p[0] == q.Join || p[0] == q.JoinAlias {
+				if j.GetColumn(p[1]) != nil {
+					columns = append(columns, [2]string{j.Name(), p[1]})
+				} else {
+					columns = append(columns, [2]string{t.Name(), p[1]})
+				}
 			}
 		} else {
 			if len(p) == 2 {
@@ -898,7 +914,7 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 		tp.Sql = sql
 		tp.Struct = SnakeCaseToCamelCase(t.Name())
 		tp.StmtName = c.funcStmtName()
-		tp.Arg = h.toArgs()
+		tp.Arg = h.CheckArgs(h.ToArgs())
 		// 函数名
 		var funcName strings.Builder
 		funcName.WriteString("Insert")
@@ -926,7 +942,7 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 			switch s := v.(type) {
 			case string:
 				if s == "?" {
-					h.addColumn(columns[i], "=", false)
+					h.AddColumn(columns[i], "=", false)
 				}
 			default:
 				c.parseHolders(&h, v, false)
@@ -937,7 +953,7 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 		tp.Sql = sql
 		tp.Struct = SnakeCaseToPascalCase(t.Name())
 		tp.StmtName = c.funcStmtName()
-		tp.Arg = h.toArgs()
+		tp.Arg = h.CheckArgs(h.ToArgs())
 		// 函数名
 		var funcName strings.Builder
 		funcName.WriteString("Insert")
@@ -960,7 +976,7 @@ func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.FuncTPL {
 	tp.Sql = sql
 	tp.Struct = SnakeCaseToPascalCase(t.Name())
 	tp.StmtName = c.funcStmtName()
-	tp.Arg = h.toArgs()
+	tp.Arg = h.CheckArgs(h.ToArgs())
 	// 函数名
 	var funcName strings.Builder
 	funcName.WriteString("Delete")
@@ -990,8 +1006,8 @@ func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.FuncTPL {
 	tp.Sql = sql
 	tp.Struct = SnakeCaseToPascalCase(t.Name())
 	tp.StmtName = c.funcStmtName()
-	columnArgs := h1.toArgs() // 用于函数名
-	tp.Arg = append(columnArgs, h2.toArgs()...)
+	columnArgs := h1.ToArgs() // 用于函数名
+	tp.Arg = append(columnArgs, h2.ToArgs()...)
 	// 函数名
 	var funcName strings.Builder
 	funcName.WriteString("Update")
@@ -1028,13 +1044,13 @@ func (c *code) parseHolders(h *holders, v interface{}, sub bool) {
 	case string:
 		// 单个，没有列名和操作符
 		if v == "?" {
-			h.addColumn("", "", sub)
+			h.AddColumn("", "", sub)
 		}
 	case *ExpressionStmt:
 		left, ok := v.Left.(string)
 		if ok {
 			if left == "?" {
-				h.addColumn("", "", sub)
+				h.AddColumn("", "", sub)
 			}
 		} else {
 			c.parseHolders(h, v.Left, sub)
@@ -1043,9 +1059,9 @@ func (c *code) parseHolders(h *holders, v interface{}, sub bool) {
 		if ok {
 			if right == "?" {
 				if left != "" {
-					h.addColumn(left, v.Operator, sub)
+					h.AddColumn(left, v.Operator, sub)
 				} else {
-					h.addColumn("", "", sub)
+					h.AddColumn("", "", sub)
 				}
 			}
 		} else {
@@ -1071,7 +1087,7 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	}
 	// distinct
 	if q.Distinct == "?" {
-		h.addColumn(q.Table+"_distinct", "", sub)
+		h.AddColumn(q.Table+"_distinct", "", sub)
 	}
 	// columns
 	for _, col := range q.Column {
@@ -1084,7 +1100,7 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	// group by
 	for _, s := range q.GroupBy {
 		if s == "?" {
-			h.addColumn(q.Table+"_group", "", sub)
+			h.AddColumn(q.Table+"_group", "", sub)
 		}
 	}
 	// having
@@ -1096,17 +1112,17 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	// order by
 	for _, s := range q.OrderBy {
 		if s == "?" {
-			h.addColumn(q.Table+"_order", "", sub)
+			h.AddColumn(q.Table+"_order", "", sub)
 		}
 	}
 	// asc/desc
 	if q.Order == "?" {
-		h.addColumn(q.Table+"_sort", "", sub)
+		h.AddColumn(q.Table+"_sort", "", sub)
 	}
 	// limit
 	for _, s := range q.Limit {
 		if s == "?" {
-			h.addColumn(q.Table+"_limit", "", sub)
+			h.AddColumn(q.Table+"_limit", "", sub)
 		}
 	}
 }
