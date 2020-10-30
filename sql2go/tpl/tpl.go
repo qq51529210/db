@@ -64,6 +64,8 @@ type FuncTPL interface {
 	SetStmt(name string)
 	IsTx() bool
 	FuncName() string
+	Fields() []string
+	Params() []string
 	SetFuncName(name string)
 	SetParamName(names []string)
 }
@@ -77,7 +79,7 @@ type funcTPL struct {
 	Tx       bool
 	Sql      string
 	Func     string
-	Param    []string
+	Arg      []*Arg
 	Struct   string
 	StmtName string
 }
@@ -111,11 +113,14 @@ func (t *funcTPL) SetFuncName(name string) {
 }
 
 func (t *funcTPL) SetParamName(names []string) {
-	for i, name := range names {
-		if i >= len(t.Param) {
+	for _, a := range t.Arg {
+		if len(names) < 1 {
 			return
 		}
-		t.Param[i] = name
+		if !a.IsField {
+			a.Name = names[0]
+			names = names[1:]
+		}
 	}
 }
 
@@ -124,13 +129,14 @@ func (t *funcTPL) TPLParam() string {
 	if t.Tx {
 		s = "tx *sql.Tx"
 	}
-	if len(t.Param) < 1 {
+	p := t.Params()
+	if len(p) < 1 {
 		return s
 	}
 	if t.Tx {
 		s += ", "
 	}
-	s += strings.Join(t.Param, ", ") + " interface{}"
+	s += strings.Join(p, ", ") + " interface{}"
 	return s
 }
 
@@ -141,14 +147,53 @@ func (t *funcTPL) TPLStmt() string {
 	return t.StmtName
 }
 
+func (t *funcTPL) Fields() []string {
+	return PickFields(t.Arg)
+}
+
+func (t *funcTPL) Params() []string {
+	return PickParams(t.Arg)
+}
+
 type Arg struct {
 	Name    string
 	IsField bool
 }
 
-func (a Arg) String() string {
+func (a *Arg) String() string {
 	if a.IsField {
 		return "m." + a.Name
 	}
 	return a.Name
+}
+
+func PickFields(args []*Arg) []string {
+	var s []string
+	for _, a := range args {
+		if a.IsField {
+			s = append(s, a.Name)
+		}
+	}
+	return s
+}
+
+func PickParams(args []*Arg) []string {
+	var s []string
+	for _, a := range args {
+		if !a.IsField {
+			s = append(s, a.Name)
+		}
+	}
+	return s
+}
+
+func ClassifyArgs(args []*Arg) (fields []string, params []string) {
+	for _, a := range args {
+		if a.IsField {
+			fields = append(fields, a.Name)
+		} else {
+			params = append(params, a.Name)
+		}
+	}
+	return
 }

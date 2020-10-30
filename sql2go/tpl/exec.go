@@ -7,7 +7,7 @@ import (
 const tplStrExec = `// {{.Sql}}
 func {{.Func}} ({{.TPLParam}}) (sql.Result, error) {
 	return {{.TPLStmt}}.Exec(
-		{{- range .Param}}
+		{{- range .Params}}
 		{{.}},
 		{{- end}}
 	)
@@ -38,7 +38,6 @@ func (m *{{.Struct}}) {{.Func}}({{.TPLParam}}) (sql.Result, error) {
 
 type StructExec struct {
 	funcTPL
-	Arg []*Arg
 }
 
 func (t *StructExec) Execute(w io.Writer) error {

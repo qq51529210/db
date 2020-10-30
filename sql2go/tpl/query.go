@@ -8,7 +8,7 @@ import (
 const tplStrQuery = `// {{.Sql}}
 func {{.Func}} ({{.TPLParam}}) ({{.ReturnType}}, error) {
 	rows, err := {{.TPLStmt}}.Query(
-		{{- range .Param}}
+		{{- range .Params}}
 		{{.}},
 		{{- end}}
 	)
@@ -71,7 +71,7 @@ func {{.Func}}({{.TPLParam}}) {{.ReturnString}} {
 	var m{{$i}} {{$s}}
 	{{- end}}
 	err := {{.TPLStmt}}.QueryRow(
-		{{- range .Param}}
+		{{- range .Params}}
 		{{.}},
 		{{- end}}
 	).Scan(
@@ -111,7 +111,7 @@ func (t *QueryRow) ReturnString() string {
 const tplStrStructQuery = `// {{.Sql}}
 func {{.Func}}({{.TPLParam}}) ([]*{{.Struct}}, error) {
 	rows, err := {{.TPLStmt}}.Query(
-		{{- range .Param}}
+		{{- range .Params}}
 		{{.}},
 		{{- end}}
 	)
@@ -151,7 +151,7 @@ func (t *StructQuery) String() string {
 const tplStrStructQueryRow = `// {{.Sql}}
 func (m *{{.Struct}}) {{.Func}}({{.TPLParam}}) error {
 	return {{.TPLStmt}}.QueryRow(
-		{{- range .Query}}
+		{{- range .Arg}}
 		{{.}},
 		{{- end}}
 	).Scan(
@@ -164,8 +164,7 @@ func (m *{{.Struct}}) {{.Func}}({{.TPLParam}}) error {
 
 type StructQueryRow struct {
 	funcTPL
-	Query []*Arg
-	Scan  []string
+	Scan []string
 }
 
 func (t *StructQueryRow) Execute(w io.Writer) error {

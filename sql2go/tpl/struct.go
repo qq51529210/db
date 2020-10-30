@@ -97,7 +97,7 @@ func (t *JoinStruct) Execute(w io.Writer) error {
 }
 
 func (t *JoinStruct) StructName() string {
-	return t.Struct1.Name + t.Struct2.Name
+	return t.Struct1.Name + "Join" + t.Struct2.Name
 }
 
 func (t *JoinStruct) AddFuncTPL(tpl FuncTPL) {

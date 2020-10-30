@@ -106,6 +106,39 @@ func (t *Table) GetColumn(name string) *Column {
 	return nil
 }
 
+func (t *Table) PrimaryKeyColumns() (pk, npk []*Column) {
+	for _, c := range t.column {
+		if c.primaryKey {
+			pk = append(pk, c)
+		} else {
+			npk = append(npk, c)
+		}
+	}
+	return
+}
+
+func (t *Table) UniqueColumns() (un, nun []*Column) {
+	for _, c := range t.column {
+		if c.primaryKey {
+			un = append(un, c)
+		} else {
+			nun = append(nun, c)
+		}
+	}
+	return
+}
+
+func (t *Table) MulUniqueColumns() (mu, nmu []*Column) {
+	for _, c := range t.column {
+		if c.primaryKey {
+			mu = append(mu, c)
+		} else {
+			nmu = append(nmu, c)
+		}
+	}
+	return
+}
+
 // 数据库表字段
 type Column struct {
 	dbType        string        // db类型

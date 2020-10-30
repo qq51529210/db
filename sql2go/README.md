@@ -59,7 +59,7 @@ docker包装了一个web服务
 1. "table [[as]alias]"，table不能是子查询。
 1. "group by column [, ...]"，column可以是占位符'?'。
 1. "order by column [, ...]"，column可以是占位符'?'。
-1. "limit{start}[total]"，start和total可以是占位符'?'。  
+1. "limit{start}[total]"，start和total可以是占位符'?'。
 ```
 select [all|distinct] *|column|function[[as]alias][, ...] from table [[as]alias]
 [{[natural]{left|right}[outer]}] join table [[as]alias] {on condition}]

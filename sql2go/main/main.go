@@ -17,7 +17,7 @@ func main() {
 	defer func() {
 		re := recover()
 		if re != nil {
-			log.Recover(re, true)
+			log.Recover(re, false)
 		}
 	}()
 	var config, http, https string

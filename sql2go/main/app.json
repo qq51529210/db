@@ -13,12 +13,6 @@
   "pkg": "dao",
   "?": "数据库表名，生成Struct.S/I/U/D，Count，List的默认代码",
   "default": [
-    "t0",
-    "t1",
-    "t2",
-    "t3",
-    "t4",
-    "t5"
   ],
   "?": "",
   "sql": [
@@ -41,7 +35,16 @@
       "func": "DeleteByIdName"
     },
     {
+      "sql": "update t5 set c1=?,c3=1 where id=?"
+    },
+    {
       "sql": "update t5 set c1=?, c2=1,c3=3+?, c4=(?*c1) where id>? and id <?"
+    },
+    {
+      "sql": "insert into t2 values(?,?)"
+    },
+    {
+      "sql": "insert into t2(name) values(?)"
     }
   ]
 }

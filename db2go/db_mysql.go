@@ -59,9 +59,9 @@ func mysqlGoType(dataType string) string {
 		if strings.HasPrefix(dataType, "binary") {
 			return "[]byte"
 		}
-		//if strings.HasPrefix(dataType, "decimal") {
-		//	return "float64"
-		//}
+		if strings.HasPrefix(dataType, "decimal") {
+			return "float64"
+		}
 		return "string"
 	}
 }
