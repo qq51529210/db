@@ -383,14 +383,14 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 		return nil, err
 	}
 	tps = append(tps, tp)
+	tp, err = c.FuncTPL(c.defaultFuncCount(t), SnakeCaseToPascalCase(t.Name())+"Count", false, nil)
+	if err != nil {
+		return nil, err
+	}
+	tps = append(tps, tp)
 	//
 	sql = append(sql, c.defaultFuncInsert(t, t.Columns()))
 	if len(pk) > 0 {
-		tp, err = c.FuncTPL(c.defaultFuncCount(t, pk), SnakeCaseToPascalCase(t.Name())+"Count", false, nil)
-		if err != nil {
-			return nil, err
-		}
-		tps = append(tps, tp)
 		sql = append(sql, c.defaultFuncSelect(t, npk, pk))
 		sql = append(sql, c.defaultFuncUpdate(t, npk, pk))
 		sql = append(sql, c.defaultFuncDelete(t, pk))
@@ -451,12 +451,10 @@ func (c *code) SaveFiles(dir string) error {
 	return tpl.SaveFile(c.tplInit, filepath.Join(dir, c.pkg+".init.go"))
 }
 
-func (c *code) defaultFuncCount(table *db2go.Table, pk []*db2go.Column) string {
+func (c *code) defaultFuncCount(table *db2go.Table) string {
 	var sql strings.Builder
 	sql.Reset()
-	sql.WriteString("select count(")
-	c.defaultFuncFields(&sql, pk)
-	sql.WriteString(") from ")
+	sql.WriteString("select count(*) from ")
 	sql.WriteString(table.Name())
 	return sql.String()
 }
@@ -641,28 +639,31 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[0])+"."+SnakeCaseToPascalCase(col[1]))
 			}
 			// 函数名
-			var tableFields, joinFields []string
-			for _, col := range columns {
-				if col[0] == t.Name() {
-					tableFields = append(tableFields, col[1])
-				} else {
-					joinFields = append(joinFields, col[1])
-				}
-			}
 			var funcName strings.Builder
 			funcName.WriteString("Select")
 			// Field
-			if len(tableFields) > 0 {
-				funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
-				funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
-			}
-			if len(joinFields) > 0 {
-				funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
-				funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+			if len(tp.Scan) == len(t.Columns())+len(j.Columns()) {
+				funcName.WriteString("All")
+			} else {
+				var tableFields, joinFields []string
+				for _, col := range columns {
+					if col[0] == t.Name() {
+						tableFields = append(tableFields, col[1])
+					} else {
+						joinFields = append(joinFields, col[1])
+					}
+				}
+				if len(tableFields) > 0 {
+					funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
+					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
+				}
+				if len(joinFields) > 0 {
+					funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
+					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+				}
 			}
 			// By
-			tableFields = tableFields[:0]
-			joinFields = joinFields[:0]
+			var tableFields, joinFields []string
 			params := make([]string, 0)
 			for i, a := range tp.Arg {
 				if a.IsField {
@@ -751,7 +752,11 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 			var funcName strings.Builder
 			funcName.WriteString("Select")
 			// Field
-			funcName.WriteString(strings.Join(tp.Scan, ""))
+			if len(tp.Scan) == len(t.Columns()) {
+				funcName.WriteString("All")
+			} else {
+				funcName.WriteString(strings.Join(tp.Scan, ""))
+			}
 			// By
 			fields, params := tpl.ClassifyArgs(tp.Arg)
 			if len(fields) > 0 || len(params) > 0 {
@@ -784,7 +789,11 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 		funcName.WriteString("Select")
 		funcName.WriteString(structName)
 		// Field
-		funcName.WriteString(strings.Join(tp.Scan, ""))
+		if len(tp.Scan) == len(t.Columns()) {
+			funcName.WriteString("All")
+		} else {
+			funcName.WriteString(strings.Join(tp.Scan, ""))
+		}
 		// By
 		params := tpl.PickParams(tp.Arg)
 		if len(params) > 0 {
@@ -843,6 +852,9 @@ func (c *code) funcSelectTable(q *SelectStmt) (t, j *db2go.Table, structName str
 
 func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 	var columns [][2]string
+	// 不能有相同列
+	same1 := make(map[string]int)
+	same2 := make(map[string]int)
 	for _, col := range q.Column {
 		v := col.Expression.(string)
 		if v == "*" {
@@ -871,15 +883,31 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 			}
 			if p[0] == q.Table || p[0] == q.TableAlias {
 				if t.GetColumn(p[1]) != nil {
+					_, ok := same1[p[1]]
+					if ok {
+						panic(fmt.Errorf("same column '%s'", v))
+					}
 					columns = append(columns, [2]string{t.Name(), p[1]})
 				} else {
+					_, ok := same2[p[1]]
+					if ok {
+						panic(fmt.Errorf("same column '%s'", v))
+					}
 					columns = append(columns, [2]string{j.Name(), p[1]})
 				}
 			}
 			if p[0] == q.Join || p[0] == q.JoinAlias {
 				if j.GetColumn(p[1]) != nil {
+					_, ok := same2[p[1]]
+					if ok {
+						panic(fmt.Errorf("same column '%s'", v))
+					}
 					columns = append(columns, [2]string{j.Name(), p[1]})
 				} else {
+					_, ok := same1[p[1]]
+					if ok {
+						panic(fmt.Errorf("same column '%s'", v))
+					}
 					columns = append(columns, [2]string{t.Name(), p[1]})
 				}
 			}
@@ -888,6 +916,10 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 				v = p[1]
 			}
 			if t.GetColumn(v) != nil {
+				_, ok := same1[v]
+				if ok {
+					panic(fmt.Errorf("same column '%s'", v))
+				}
 				columns = append(columns, [2]string{t.Name(), v})
 			} else {
 				panic(errColumnType)

@@ -520,9 +520,6 @@ func (p *parser) expressionValue() interface{} {
 		return expr
 	}
 	// 单一值
-	if !isIdentifier(t) {
-		panic(p.stmtError())
-	}
 	return t
 }
 

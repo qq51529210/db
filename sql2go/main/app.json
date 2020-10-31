@@ -13,6 +13,12 @@
   "pkg": "dao",
   "?": "数据库表名，生成Struct.S/I/U/D，Count，List的默认代码",
   "default": [
+    "t0",
+    "t1",
+    "t2",
+    "t3",
+    "t4",
+    "t5"
   ],
   "?": "",
   "sql": [
