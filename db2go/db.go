@@ -130,7 +130,7 @@ func (t *Table) UniqueColumns() (un, nun []*Column) {
 
 func (t *Table) MulUniqueColumns() (mu, nmu []*Column) {
 	for _, c := range t.column {
-		if c.primaryKey {
+		if c.mulUnique {
 			mu = append(mu, c)
 		} else {
 			nmu = append(nmu, c)

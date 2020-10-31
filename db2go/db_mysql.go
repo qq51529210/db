@@ -85,17 +85,17 @@ func mysqlReadSchema(dbUrl string) (*Schema, error) {
 		_ = db.Close()
 	}()
 	// 读取数据库所有表
-	err = readSchemaTableMYSQL(db, schema)
+	err = mysqlReadSchemaTable(db, schema)
 	if err != nil {
 		return nil, err
 	}
 	// 读取表所有列信息
 	for _, table := range schema.table {
-		err = readSchemaTableColumnMYSQL(db, schema, table)
+		err = mysqlReadSchemaTableColumn(db, schema, table)
 		if err != nil {
 			return nil, err
 		}
-		err = readSchemaTableReferenceMYSQL(db, schema, table)
+		err = mysqlReadSchemaColumnMulAndReference(db, schema, table)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func mysqlParseSchemaName(dbUrl string) (string, error) {
 }
 
 // 读取数据库所有表
-func readSchemaTableMYSQL(db *sql.DB, schema *Schema) error {
+func mysqlReadSchemaTable(db *sql.DB, schema *Schema) error {
 	// sql
 	var str strings.Builder
 	str.WriteString("select ")
@@ -153,7 +153,7 @@ func readSchemaTableMYSQL(db *sql.DB, schema *Schema) error {
 }
 
 // 读取表的所有列信息
-func readSchemaTableColumnMYSQL(db *sql.DB, schema *Schema, table *Table) error {
+func mysqlReadSchemaTableColumn(db *sql.DB, schema *Schema, table *Table) error {
 	// sql
 	var str strings.Builder
 	str.WriteString("select ")
@@ -204,8 +204,6 @@ func readSchemaTableColumnMYSQL(db *sql.DB, schema *Schema, table *Table) error 
 				column.primaryKey = true
 			case "uni":
 				column.unique = true
-			case "mul":
-				column.mulUnique = true
 			}
 		}
 		// 默认
@@ -225,11 +223,12 @@ func readSchemaTableColumnMYSQL(db *sql.DB, schema *Schema, table *Table) error 
 	return nil
 }
 
-// 读取表的所有引用（外键）
-func readSchemaTableReferenceMYSQL(db *sql.DB, schema *Schema, table *Table) error {
+// 读取表的，多唯一，外键
+func mysqlReadSchemaColumnMulAndReference(db *sql.DB, schema *Schema, table *Table) error {
 	// sql
 	var str strings.Builder
 	str.WriteString("select ")
+	str.WriteString("constraint_name,")
 	str.WriteString("column_name,")
 	str.WriteString("referenced_table_name,")
 	str.WriteString("referenced_column_name ")
@@ -252,25 +251,45 @@ func readSchemaTableReferenceMYSQL(db *sql.DB, schema *Schema, table *Table) err
 		return nil
 	}
 	// 循环
-	var columnName, referencedTableName, referencedColumnName sql.NullString
+	nameColumns := make(map[string][]string)
+	refNames := make(map[string][2]string)
+	var constraintName, columnName, referencedTableName, referencedColumnName sql.NullString
 	for rows.Next() {
-		err = rows.Scan(&columnName, &referencedTableName, &referencedColumnName)
+		err = rows.Scan(&constraintName, &columnName, &referencedTableName, &referencedColumnName)
 		if err != nil {
 			return err
 		}
-		if !columnName.Valid || !referencedTableName.Valid || !referencedColumnName.Valid {
+		if !constraintName.Valid || strings.ToLower(constraintName.String) == "primary" || !columnName.Valid {
 			continue
 		}
-		for i := 0; i < len(table.column); i++ {
-			if table.column[i].name == columnName.String {
-				t := schema.GetTable(referencedTableName.String)
-				table.column[i].foreignTable = &ForeignTable{
-					table:  t,
-					column: t.GetColumn(referencedColumnName.String),
-				}
-				break
-			}
+		columns, ok := nameColumns[constraintName.String]
+		if ok {
+			columns = append(columns, columnName.String)
+		} else {
+			columns = make([]string, 0)
+			columns = append(columns, columnName.String)
+			nameColumns[constraintName.String] = columns
+		}
+		if referencedTableName.Valid && referencedColumnName.Valid {
+			refNames[columnName.String] = [2]string{referencedTableName.String, referencedColumnName.String}
 		}
 	}
+	// 分析
+	for _, v := range nameColumns {
+		for _, s := range v {
+			// 如果为nil，那么mysql的数据是有问题的
+			c := table.GetColumn(s)
+			c.mulUnique = true
+		}
+	}
+	for k, v := range refNames {
+		// 如果为nil，那么mysql的数据是有问题的
+		c := table.GetColumn(k)
+		t := new(ForeignTable)
+		t.table = schema.GetTable(v[0])
+		t.column = t.table.GetColumn(v[1])
+		c.foreignTable = t
+	}
+
 	return nil
 }

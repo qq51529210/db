@@ -65,9 +65,21 @@ create table t3
 
 create table t4
 (
-    c1 int not null,
-    c2 int not null,
+    c1 int             not null,
+    c2 int             not null,
     c3 int default 123 null,
     primary key (c1, c2)
+);
+
+create table t5
+(
+    id int auto_increment
+        primary key,
+    c1 int           not null,
+    c2 int           not null,
+    c3 int default 0 not null,
+    c4 int default 0 not null,
+    constraint t5_c1_c2_uindex
+        unique (c1, c2)
 );
 

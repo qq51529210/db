@@ -378,8 +378,19 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 	var tps []tpl.FuncTPL
 	var sql []string
 	// 生成
+	tp, err := c.FuncTPL(c.defaultFuncList(t), SnakeCaseToPascalCase(t.Name())+"List", false, nil)
+	if err != nil {
+		return nil, err
+	}
+	tps = append(tps, tp)
+	//
 	sql = append(sql, c.defaultFuncInsert(t, t.Columns()))
 	if len(pk) > 0 {
+		tp, err = c.FuncTPL(c.defaultFuncCount(t, pk), SnakeCaseToPascalCase(t.Name())+"Count", false, nil)
+		if err != nil {
+			return nil, err
+		}
+		tps = append(tps, tp)
 		sql = append(sql, c.defaultFuncSelect(t, npk, pk))
 		sql = append(sql, c.defaultFuncUpdate(t, npk, pk))
 		sql = append(sql, c.defaultFuncDelete(t, pk))
@@ -399,7 +410,7 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 		if s == "" {
 			continue
 		}
-		tp, err := c.FuncTPL(s, "", false, nil)
+		tp, err = c.FuncTPL(s, "", false, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -442,7 +453,7 @@ func (c *code) defaultFuncCount(table *db2go.Table, pk []*db2go.Column) string {
 	sql.Reset()
 	sql.WriteString("select count(")
 	c.defaultFuncFields(&sql, pk)
-	sql.WriteString(")from ")
+	sql.WriteString(") from ")
 	sql.WriteString(table.Name())
 	return sql.String()
 }
@@ -752,7 +763,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 		for i, a := range args {
 			if a.IsField {
 				a.IsField = false
-				a.Name = SnakeCaseToCamelCase(h.holder[i].column.Name()) + operatorsNames[h.holder[i].operator]
+				a.Name = SnakeCaseToCamelCase(h.holder[i].column.Name())
 			}
 		}
 		args = h.CheckArgs(args)
@@ -1006,15 +1017,17 @@ func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.FuncTPL {
 	tp.Sql = sql
 	tp.Struct = SnakeCaseToPascalCase(t.Name())
 	tp.StmtName = c.funcStmtName()
-	columnArgs := h1.ToArgs() // 用于函数名
-	tp.Arg = append(columnArgs, h2.ToArgs()...)
+	args1 := h1.ToArgs() // 用于函数名
+	args2 := h2.ToArgs() // 用于函数名
+	tp.Arg = append(args1, args2...)
 	// 函数名
 	var funcName strings.Builder
 	funcName.WriteString("Update")
 	// UpdateFieldByFieldParam
-	fields := tpl.PickFields(columnArgs)
+	fields := tpl.PickFields(args1)
 	funcName.WriteString(strings.Join(fields, ""))
-	fields, params := tpl.ClassifyArgs(tp.Arg)
+	fields = tpl.PickFields(args2)
+	params := tpl.PickParams(tp.Arg)
 	if len(fields) > 0 || len(params) > 0 {
 		funcName.WriteString("By")
 		funcName.WriteString(strings.Join(fields, ""))
