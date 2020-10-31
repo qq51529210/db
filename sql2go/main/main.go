@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/qq51529210/db/db2go"
+	"github.com/qq51529210/db/sql2go/main/web"
 	"github.com/qq51529210/db/sql2go/mysql"
 	"github.com/qq51529210/log"
 	"net/url"
@@ -20,19 +21,16 @@ func main() {
 			log.Recover(re, false)
 		}
 	}()
-	var config, http, https string
+	var config, http string
 	flag.StringVar(&config, "config", "", "config file path")
 	flag.StringVar(&http, "http", "", "http listen address")
-	flag.StringVar(&https, "https", "", "https listen address")
 	flag.Parse()
 	if config != "" {
 		genCode(config)
 		return
 	}
-	if https != "" {
-		return
-	}
 	if http != "" {
+		web.ListenAndServe(http)
 		return
 	}
 	flag.PrintDefaults()
@@ -80,18 +78,15 @@ type cfgSQL struct {
 	IsTx  bool     // 是否tx
 }
 
-func (c *cfgSQL) Replace(params []string) []string {
-	for i, p := range c.Param {
-		if i >= len(params) {
-			break
-		}
-		params[i] = p
-	}
-	return params
-}
-
 func (c *cfgSQL) Check() {
-	c.Param = removeEmptyString(c.Param)
+	p := c.Param
+	c.Param = c.Param[:0]
+	for _, s := range p {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			c.Param = append(c.Param, s)
+		}
+	}
 	if c.Tx != "" {
 		c.Sql = c.Tx
 		c.IsTx = true
@@ -102,17 +97,6 @@ func (c *cfgSQL) Check() {
 	}
 }
 
-func removeEmptyString(ss []string) []string {
-	var sss []string
-	for _, s := range ss {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			sss = append(sss, s)
-		}
-	}
-	return sss
-}
-
 func genCode(config string) {
 	c := loadCfg(config)
 	_url, err := url.Parse(c.DBUrl)
@@ -120,34 +104,30 @@ func genCode(config string) {
 	dbUrl := strings.Replace(c.DBUrl, _url.Scheme+"://", "", 1)
 	switch strings.ToLower(_url.Scheme) {
 	case db2go.MYSQL:
-		genCodeMYSQL(dbUrl, c)
+		code, err := mysql.NewCode(dbUrl, c.Pkg)
+		log.CheckError(err)
+		// 添加函数
+		for k, v := range c.Func {
+			mysql.AddFunction(k, v)
+		}
+		// 默认FuncTPL
+		same := make(map[string]int)
+		for _, t := range c.Def {
+			if _, ok := same[t]; ok {
+				continue
+			}
+			same[t] = 1
+			_, err := code.DefaultFuncTPLs(t)
+			log.CheckError(err)
+		}
+		// sql生成FuncTPL
+		for _, s := range c.SQL {
+			_, err := code.FuncTPL(s.Sql, s.Func, s.IsTx, s.Param)
+			log.CheckError(err)
+		}
+		// 保存
+		log.CheckError(code.SaveFiles(c.Dir))
 	default:
 		panic(fmt.Errorf("dbUrl: unsupported database '%s'", _url.Scheme))
 	}
-}
-
-func genCodeMYSQL(dbUrl string, c *cfg) {
-	code, err := mysql.NewCode(dbUrl, c.Pkg)
-	log.CheckError(err)
-	// 添加函数
-	for k, v := range c.Func {
-		mysql.AddFunction(k, v)
-	}
-	// 默认FuncTPL
-	same := make(map[string]int)
-	for _, t := range c.Def {
-		if _, ok := same[t]; ok {
-			continue
-		}
-		same[t] = 1
-		_, err := code.DefaultFuncTPLs(t)
-		log.CheckError(err)
-	}
-	// sql生成FuncTPL
-	for _, s := range c.SQL {
-		_, err := code.FuncTPL(s.Sql, s.Func, s.IsTx, s.Param)
-		log.CheckError(err)
-	}
-	// 保存
-	log.CheckError(code.SaveFiles(c.Dir))
 }

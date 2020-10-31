@@ -376,44 +376,88 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 	// 区分列
 	pk, npk, uni, nuni, mul, nmul := c.defaultFuncPickColumns(t)
 	var tps []tpl.FuncTPL
-	var sql []string
-	// 生成
+	// StructList
 	tp, err := c.FuncTPL(c.defaultFuncList(t), SnakeCaseToPascalCase(t.Name())+"List", false, nil)
 	if err != nil {
 		return nil, err
 	}
 	tps = append(tps, tp)
+	// StructCount
 	tp, err = c.FuncTPL(c.defaultFuncCount(t), SnakeCaseToPascalCase(t.Name())+"Count", false, nil)
 	if err != nil {
 		return nil, err
 	}
 	tps = append(tps, tp)
-	//
-	sql = append(sql, c.defaultFuncInsert(t, t.Columns()))
+	// Struct.Insert
+	tp, err = c.FuncTPL(c.defaultFuncInsert(t, t.Columns()), "Insert", false, nil)
+	if err != nil {
+		return nil, err
+	}
+	tps = append(tps, tp)
 	if len(pk) > 0 {
-		sql = append(sql, c.defaultFuncSelect(t, npk, pk))
-		sql = append(sql, c.defaultFuncUpdate(t, npk, pk))
-		sql = append(sql, c.defaultFuncDelete(t, pk))
+		// Struct.Select
+		tp, err = c.FuncTPL(c.defaultFuncSelect(t, npk, pk), "Select", false, nil)
+		if err != nil {
+			return nil, err
+		}
+		tps = append(tps, tp)
+		// Struct.Update
+		tp, err = c.FuncTPL(c.defaultFuncUpdate(t, npk, pk), "Update", false, nil)
+		if err != nil {
+			return nil, err
+		}
+		tps = append(tps, tp)
+		// Struct.Delete
+		tp, err = c.FuncTPL(c.defaultFuncDelete(t, t.Columns()), "Delete", false, nil)
+		if err != nil {
+			return nil, err
+		}
+		tps = append(tps, tp)
 	}
 	if len(uni) > 0 {
 		for _, s := range uni {
 			key := []*db2go.Column{s}
-			sql = append(sql, c.defaultFuncSelect(t, nuni, key))
-			sql = append(sql, c.defaultFuncUpdate(t, nuni, key))
-			sql = append(sql, c.defaultFuncDelete(t, key))
+			// Struct.SelectBy
+			tp, err = c.FuncTPL(c.defaultFuncSelect(t, nuni, key), "", false, nil)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
+			// Struct.UpdateBy
+			sql := c.defaultFuncUpdate(t, nuni, key)
+			if sql != "" {
+				tp, err = c.FuncTPL(sql, "", false, nil)
+				if err != nil {
+					return nil, err
+				}
+				tps = append(tps, tp)
+			}
+			// Struct.DeleteBy
+			tp, err = c.FuncTPL(c.defaultFuncDelete(t, key), "", false, nil)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
 		}
 	}
 	if len(mul) > 0 {
-		sql = append(sql, c.defaultFuncSelect(t, nmul, mul))
-		sql = append(sql, c.defaultFuncUpdate(t, nmul, mul))
-		sql = append(sql, c.defaultFuncDelete(t, mul))
-	}
-	// 生成模板
-	for _, s := range sql {
-		if s == "" {
-			continue
+		// Struct.SelectBy
+		tp, err = c.FuncTPL(c.defaultFuncSelect(t, nmul, mul), "", false, nil)
+		if err != nil {
+			return nil, err
 		}
-		tp, err = c.FuncTPL(s, "", false, nil)
+		tps = append(tps, tp)
+		// Struct.UpdateBy
+		sql := c.defaultFuncUpdate(t, nuni, mul)
+		if sql != "" {
+			tp, err = c.FuncTPL(sql, "", false, nil)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
+		}
+		// Struct.DeleteBy
+		tp, err = c.FuncTPL(c.defaultFuncDelete(t, mul), "", false, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1003,8 +1047,14 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 		// 函数名
 		var funcName strings.Builder
 		funcName.WriteString("Insert")
-		// InsertField
-		funcName.WriteString(strings.Join(tpl.PickFields(tp.Arg), ""))
+		// Insert
+		if len(q.Column) > 0 {
+			// Field
+			fields := tpl.PickFields(tp.Arg)
+			if len(fields) != len(columns) {
+				funcName.WriteString(strings.Join(fields, ""))
+			}
+		}
 		tp.Func = funcName.String()
 		return tp
 	}

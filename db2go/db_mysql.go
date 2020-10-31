@@ -263,13 +263,11 @@ func mysqlReadSchemaColumnMulAndReference(db *sql.DB, schema *Schema, table *Tab
 			continue
 		}
 		columns, ok := nameColumns[constraintName.String]
-		if ok {
-			columns = append(columns, columnName.String)
-		} else {
+		if !ok {
 			columns = make([]string, 0)
-			columns = append(columns, columnName.String)
-			nameColumns[constraintName.String] = columns
 		}
+		columns = append(columns, columnName.String)
+		nameColumns[constraintName.String] = columns
 		if referencedTableName.Valid && referencedColumnName.Valid {
 			refNames[columnName.String] = [2]string{referencedTableName.String, referencedColumnName.String}
 		}
