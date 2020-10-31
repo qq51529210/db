@@ -396,9 +396,12 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 		sql = append(sql, c.defaultFuncDelete(t, pk))
 	}
 	if len(uni) > 0 {
-		sql = append(sql, c.defaultFuncSelect(t, nuni, uni))
-		sql = append(sql, c.defaultFuncUpdate(t, nuni, uni))
-		sql = append(sql, c.defaultFuncDelete(t, uni))
+		for _, s := range uni {
+			key := []*db2go.Column{s}
+			sql = append(sql, c.defaultFuncSelect(t, nuni, key))
+			sql = append(sql, c.defaultFuncUpdate(t, nuni, key))
+			sql = append(sql, c.defaultFuncDelete(t, key))
+		}
 	}
 	if len(mul) > 0 {
 		sql = append(sql, c.defaultFuncSelect(t, nmul, mul))

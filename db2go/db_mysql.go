@@ -276,10 +276,12 @@ func mysqlReadSchemaColumnMulAndReference(db *sql.DB, schema *Schema, table *Tab
 	}
 	// 分析
 	for _, v := range nameColumns {
-		for _, s := range v {
-			// 如果为nil，那么mysql的数据是有问题的
-			c := table.GetColumn(s)
-			c.mulUnique = true
+		if len(v) > 1 {
+			for _, s := range v {
+				// 如果为nil，那么mysql的数据是有问题的
+				c := table.GetColumn(s)
+				c.mulUnique = true
+			}
 		}
 	}
 	for k, v := range refNames {
