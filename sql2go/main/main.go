@@ -37,12 +37,13 @@ func main() {
 }
 
 type cfg struct {
-	DBUrl string            `json:"dbUrl"`            // 数据库配置
-	Dir   string            `json:"dir,omitempy"`     // 生成代码根目录，空则使用程序当前目录
-	Pkg   string            `json:"pkg,omitempy"`     // 代码包名，空则使用数据库名称
-	Func  map[string]string `json:"func,omitempy"`    // 代码中没有涉及到的函数，值表示函数的返回值
-	SQL   []*cfgSQL         `json:"sql,omitempy"`     // 自动sql解析
-	Def   []string          `json:"default,omitempy"` // 需要生成默认代码的表名
+	DBUrl    string            `json:"dbUrl"`        // 数据库配置
+	Dir      string            `json:"dir,omitempy"` // 生成代码根目录，空则使用程序当前目录
+	CleanDir bool              `json:"cleanDir,omitempy"`
+	Pkg      string            `json:"pkg,omitempy"`     // 代码包名，空则使用数据库名称
+	Func     map[string]string `json:"func,omitempy"`    // 代码中没有涉及到的函数，值表示函数的返回值
+	SQL      []*cfgSQL         `json:"sql,omitempy"`     // 自动sql解析
+	Def      []string          `json:"default,omitempy"` // 需要生成默认代码的表名
 }
 
 func loadCfg(path string) *cfg {
@@ -126,7 +127,7 @@ func genCode(config string) {
 			log.CheckError(err)
 		}
 		// 保存
-		log.CheckError(code.SaveFiles(c.Dir))
+		log.CheckError(code.SaveFiles(c.Dir, c.CleanDir))
 	default:
 		panic(fmt.Errorf("dbUrl: unsupported database '%s'", _url.Scheme))
 	}

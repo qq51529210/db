@@ -285,7 +285,7 @@ type Code interface {
 	// 获取当前的schema
 	Schema() *db2go.Schema
 	// 保存当前的模板到文件
-	SaveFiles(dir string) error
+	SaveFiles(dir string, clean bool) error
 }
 
 func NewCode(dbUrl, pkg string) (Code, error) {
@@ -471,16 +471,18 @@ func (c *code) Schema() *db2go.Schema {
 	return c.schema
 }
 
-func (c *code) SaveFiles(dir string) error {
+func (c *code) SaveFiles(dir string, clean bool) error {
 	// 输出目录
 	dir = filepath.Join(dir, c.pkg)
 	// 先删除
-	err := os.RemoveAll(dir)
-	if err != nil {
-		return err
+	if clean {
+		err := os.RemoveAll(dir)
+		if err != nil {
+			return err
+		}
 	}
 	// 再创建
-	err = os.MkdirAll(dir, os.ModePerm)
+	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return err
 	}
