@@ -23,39 +23,9 @@
     "t5"
   ],
   "?": "",
-  "sql": [
+  "stmt": [
     {
-      "?": "sql，会调用prepare检查",
-      "sql": "delete from t4 where c3=?",
-      "?": "自定义函数名称，覆写自动生成的函数名",
-      "func": "DeleteAll",
-      "?": "自定义函数入参名称，覆写自动生成的函数名",
-      "param": [
-        "id"
-      ]
-    },
-    {
-      "?": "sql，会调用prepare检查，会在添加tx*sql.Tx到第一个参数",
-      "tx": "delete from t2 where name=?"
-    },
-    {
-      "sql": "delete from t2 where id=? or name='1'",
-      "func": "DeleteByIdName"
-    },
-    {
-      "sql": "update t5 set c1=?,c3=1 where id=?"
-    },
-    {
-      "sql": "update t5 set c1=?, c2=1,c3=3+?, c4=(?*c1) where id>? and id <?"
-    },
-    {
-      "sql": "insert into t2(name) values(?)"
-    },
-    {
-      "sql": "select * from t1 union select * from t2 where id>?"
-    },
-    {
-      "sql": "select a.name,b.name from t1 a join t2 b on a.id=? and b.id=?"
+
     }
   ]
 }

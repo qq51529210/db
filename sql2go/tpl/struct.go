@@ -1,140 +1,115 @@
-// 结构体模板
 package tpl
 
 import (
-	"io"
 	"strings"
+	"text/template"
 )
 
-const tplStrStruct = `package {{.Pkg}}
+var (
+	tplStruct = template.Must(template.New("Struct").Parse(`package {{.Pkg}}
 
-{{$ip := .Import}}
-{{- if $ip -}}
 import (
-{{- range $ip}}
-	"{{.}}"
-{{- end}}
+	"database/sql"
+	{{- range $k,$v := .ImportPkg}}	
+	"{{$k}}"
+	{{- end}}
 )
-{{- end}}
 
 type {{.Name}} struct {
-	{{- range .Field}}
-	{{.Name}} {{.Type}} {{.Tag}}
+	{{- range $i,$v := .Field}}
+	{{$.TPLField $v}}
 	{{- end}}
 }
 
-{{range .TPL -}}
+func Read{{.Name}}List(rows *sql.Rows) ([]*{{.Name}}, error) {
+	var models []*{{.Name}}
+	for rows.Next() {
+		model := new({{.Name}})
+		err = rows.Scan(
+			{{- range .Fields}}
+			&model.{{.}},
+			{{- end}}
+		)
+		if nil != err {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+	return models, nil
+}
+
+{{range .FuncTPL -}}
 {{.}}
 {{end -}}
-`
+`))
+)
 
-type Field struct {
-	Name string
-	Type string
-	Tag  string
+type Struct interface {
+	TPL
+	Name() string
+	AddField(name, _type, tag string)
+	AddFunc(function Func)
+	Save(file string) error
 }
 
-type Struct struct {
-	Pkg   string
-	Name  string
-	Field []*Field
-	TPL   []FuncTPL
-}
-
-func (t *Struct) Import() []string {
-	var s []string
-	for _, f := range t.Field {
-		if strings.Contains(f.Type, "sql") {
-			s = append(s, "database/sql")
-			break
-		}
-	}
-	for _, tp := range t.TPL {
-		ft, ok := tp.(FuncTPL)
-		if ok || ft.IsTx() {
-			if len(s) == 0 {
-				s = append(s, "database/sql")
-				break
-			}
-		}
-	}
-	for _, tp := range t.TPL {
-		_, ok := tp.(*SortStructQuery)
-		if ok {
-			s = append(s, "strings")
-			break
-		}
-	}
+func NewStruct(pkg, name string) Struct {
+	s := new(_struct)
+	s.Pkg = pkg
+	s.name = name
+	s.ImportPkg = make(map[string]int)
 	return s
 }
 
-func (t *Struct) Execute(w io.Writer) error {
-	return tplStruct.Execute(w, t)
+type _struct struct {
+	Pkg       string
+	ImportPkg map[string]int
+	name      string
+	Field     [][3]string
+	FuncTPL   []Func
 }
 
-func (t *Struct) StructName() string {
-	return t.Name
+func (s *_struct) Name() string {
+	return s.name
 }
 
-func (t *Struct) AddFuncTPL(tpl FuncTPL) {
-	t.TPL = append(t.TPL, tpl)
+func (s *_struct) AddFunc(f Func) {
+	//switch f.(type) {
+	//case *Exec:
+	//	s.ImportPkg["database/sql"] = 1
+	//}
+	s.FuncTPL = append(s.FuncTPL, f)
 }
 
-const tplStrJoinStruct = `package {{.Pkg}}
-
-{{$ip := .Import}}
-{{- if $ip}}
-import (
-{{- range $ip}}
-	"{{.}}"
-{{- end}}
-}
-{{- end}}
-
-type {{.StructName}} struct {
-	{{.Struct1.Name}}
-	{{.Struct2.Name}}
+func (s *_struct) AddField(name, _type, tag string) {
+	s.Field = append(s.Field, [3]string{name, _type, tag})
 }
 
-{{range .TPL -}}
-{{.}}
-{{end -}}
-`
-
-type JoinStruct struct {
-	Pkg     string
-	Struct1 *Struct
-	Struct2 *Struct
-	TPL     []FuncTPL
+func (s *_struct) Save(file string) error {
+	return saveFile(tplStruct, s, file)
 }
 
-func (t *JoinStruct) Import() []string {
-	var s []string
-	for _, tp := range t.TPL {
-		ft, ok := tp.(FuncTPL)
-		if ok || ft.IsTx() {
-			s = append(s, "database/sql")
-			break
-		}
+func (s *_struct) TPL() *template.Template {
+	return tplStruct
+}
+
+func (s *_struct) TPLField(field [3]string) string {
+	var str strings.Builder
+	str.WriteString(field[0])
+	str.WriteByte(' ')
+	str.WriteString(field[1])
+	if field[2] != "" {
+		str.WriteByte(' ')
+		str.WriteByte('`')
+		str.WriteString(field[2])
+		str.WriteByte('`')
 	}
-	for _, tp := range t.TPL {
-		_, ok := tp.(*SortStructQuery)
-		if ok {
-			s = append(s, "strings")
-			break
-		}
+	return str.String()
+}
+
+func (s *_struct) Fields() []string {
+	var fs []string
+	for _, f := range s.Field {
+		fs = append(fs, f[0])
 	}
-	return s
-}
-
-func (t *JoinStruct) Execute(w io.Writer) error {
-	return tplJoinStruct.Execute(w, t)
-}
-
-func (t *JoinStruct) StructName() string {
-	return t.Struct1.Name + "Join" + t.Struct2.Name
-}
-
-func (t *JoinStruct) AddFuncTPL(tpl FuncTPL) {
-	t.TPL = append(t.TPL, tpl)
+	return fs
 }
