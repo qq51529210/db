@@ -25,7 +25,7 @@ func Read{{.Name}}List(rows *sql.Rows) ([]*{{.Name}}, error) {
 	var models []*{{.Name}}
 	for rows.Next() {
 		model := new({{.Name}})
-		err = rows.Scan(
+		err := rows.Scan(
 			{{- range .Fields}}
 			&model.{{.}},
 			{{- end}}
@@ -73,10 +73,10 @@ func (s *_struct) Name() string {
 }
 
 func (s *_struct) AddFunc(f Func) {
-	//switch f.(type) {
-	//case *Exec:
-	//	s.ImportPkg["database/sql"] = 1
-	//}
+	switch f.(type) {
+	case *SelectPage:
+		s.ImportPkg["strings"] = 1
+	}
 	s.FuncTPL = append(s.FuncTPL, f)
 }
 

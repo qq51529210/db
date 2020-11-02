@@ -666,12 +666,12 @@ func (p *parser) Update() *UpdateStmt {
 }
 
 type InsertStmt struct {
-	Table  string      // 表名
-	Column []string    // 列名
-	Value  interface{} // 值
+	Table  string        // 表名
+	Column []string      // 列名
+	Values []interface{} // 值
 }
 
-// insert into table [(column[, ...])] {values(expression[, ...])|select query}
+// insert into table [(column[, ...])] {values(expression[, ...])}
 func (p *parser) Insert() *InsertStmt {
 	p.record()
 	//
@@ -683,16 +683,9 @@ func (p *parser) Insert() *InsertStmt {
 		p.insertColumn(query)
 	}
 	// values(expression[, ...])
-	if p.ifMatch("values") {
-		p.insertValues(query)
-		return query
-	}
-	// select query
-	if p.ifMatch("select") {
-		query.Value = p.Select()
-		return query
-	}
-	panic(p.stmtError())
+	p.mustMatch("values")
+	p.insertValues(query)
+	return query
 }
 
 // [(column[, ...])]
@@ -726,7 +719,7 @@ func (p *parser) insertValues(query *InsertStmt) {
 	if len(query.Column) > 0 && len(query.Column) != len(vv) {
 		panic(fmt.Errorf("column count %d no equal value count %d", len(query.Column), len(vv)))
 	}
-	query.Value = vv
+	query.Values = vv
 }
 
 type SelectStmt struct {

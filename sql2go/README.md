@@ -71,7 +71,7 @@ select [all|distinct] *|column|function[[as]alias][, ...] from table [[as]alias]
 - insert  
 1. table不能是子查询，不能有别名
 ```
-insert into table [(column[, ...])] {values(expression[, ...])|select}
+insert into table [(column[, ...])] {values(expression[, ...])}
 ```
 - update  
 1. table不能是子查询，不能有别名

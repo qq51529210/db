@@ -1,7 +1,6 @@
 package mysql
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/qq51529210/db/db2go"
 	"github.com/qq51529210/db/sql2go/tpl"
@@ -31,6 +30,22 @@ var (
 		"not exists":  "NExt",
 	}
 )
+
+func JoinSnakeCaseToPascalCase(ss []string) string {
+	var str strings.Builder
+	for _, s := range ss {
+		str.WriteString(tpl.SnakeCaseToPascalCase(s))
+	}
+	return str.String()
+}
+
+func JoinCamelCaseToPascalCase(ss []string) string {
+	var str strings.Builder
+	for _, s := range ss {
+		str.WriteString(tpl.CamelCaseToPascalCase(s))
+	}
+	return str.String()
+}
 
 func recoverError() error {
 	re := recover()
@@ -131,15 +146,15 @@ func (h *holders) ToArgs() []*tpl.Arg {
 	for _, hh := range h.holder {
 		arg := new(tpl.Arg)
 		if hh.column == nil {
-			arg.Name = SnakeCaseToCamelCase(hh.name)
+			arg.Name = tpl.SnakeCaseToCamelCase(hh.name)
 		} else {
 			if hh.sub {
-				arg.Name = SnakeCaseToCamelCase(hh.table.Name()) + SnakeCaseToPascalCase(hh.column.Name())
+				arg.Name = tpl.SnakeCaseToCamelCase(hh.table.Name()) + tpl.SnakeCaseToPascalCase(hh.column.Name())
 			} else {
 				if h.join == nil {
-					arg.Name = SnakeCaseToPascalCase(hh.column.Name())
+					arg.Name = tpl.SnakeCaseToPascalCase(hh.column.Name())
 				} else {
-					arg.Name = SnakeCaseToPascalCase(hh.table.Name()) + "." + SnakeCaseToPascalCase(hh.column.Name())
+					arg.Name = tpl.SnakeCaseToPascalCase(hh.table.Name()) + "." + tpl.SnakeCaseToPascalCase(hh.column.Name())
 				}
 				arg.IsField = true
 			}
@@ -159,9 +174,9 @@ func (h *holders) CheckArgs(args []*tpl.Arg) []*tpl.Arg {
 				a.IsField = false
 				args[n].IsField = false
 				if h.join == nil {
-					a.Name = SnakeCaseToPascalCase(h.holder[i].column.Name())
+					a.Name = tpl.SnakeCaseToPascalCase(h.holder[i].column.Name())
 				} else {
-					a.Name = SnakeCaseToCamelCase(h.holder[i].table.Name()) + SnakeCaseToPascalCase(h.holder[i].column.Name())
+					a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].table.Name()) + tpl.SnakeCaseToPascalCase(h.holder[i].column.Name())
 				}
 				args[n].Name = a.Name
 			} else {
@@ -177,7 +192,7 @@ func (h *holders) CheckArgs(args []*tpl.Arg) []*tpl.Arg {
 			n, ok := param[a.Name]
 			if ok {
 				n++
-				a.Name = SnakeCaseToCamelCase(a.Name) + strconv.Itoa(n)
+				a.Name = tpl.SnakeCaseToCamelCase(a.Name) + strconv.Itoa(n)
 			} else {
 				param[a.Name] = 0
 			}
@@ -190,11 +205,11 @@ type Code interface {
 	// 获取所有的struct模板
 	StructTPLs() []tpl.TPL
 	// 获取名称为name的struct模板
-	StructTPL(table string) (tpl.StructTPL, error)
+	StructTPL(table string) (tpl.Struct, error)
 	// 生成sql函数模板，function和param为空自动生成，tx表示是否为事务
-	FuncTPL(sql string, function string, tx bool, params []string) (tpl.FuncTPL, error)
+	FuncTPL(sql string, function string, tx bool, params []string) (tpl.Func, error)
 	// 生成table的默认函数模板
-	DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error)
+	DefaultFuncTPLs(table string) ([]tpl.Func, error)
 	// 获取当前的schema
 	Schema() *db2go.Schema
 	// 保存当前的模板到文件
@@ -207,7 +222,7 @@ func NewCode(dbUrl, pkg string) (Code, error) {
 		return nil, err
 	}
 	if pkg == "" {
-		pkg = PascalCaseToSnakeCase(schema.Name())
+		pkg = tpl.PascalCaseToSnakeCase(schema.Name())
 	}
 	c := new(code)
 	c.schema = schema
@@ -215,13 +230,13 @@ func NewCode(dbUrl, pkg string) (Code, error) {
 	// init模板
 	c.tplInit = tpl.NewInitTPL(pkg, db2go.MYSQL, db2go.DriverPkg(db2go.MYSQL))
 	// struct模板
-	c.tplStruct = make(map[string]tpl.StructTPL)
+	c.tplStruct = make(map[string]tpl.Struct)
 	for _, t := range schema.Tables() {
 		tp, err := c.StructTPL(t.Name())
 		if err != nil {
 			return nil, err
 		}
-		c.tplStruct[tp.StructName()] = tp.(*tpl.Struct)
+		c.tplStruct[tp.Name()] = tp
 	}
 	return c, nil
 }
@@ -229,8 +244,8 @@ func NewCode(dbUrl, pkg string) (Code, error) {
 type code struct {
 	pkg       string
 	schema    *db2go.Schema
-	tplStruct map[string]tpl.StructTPL
-	tplInit   *tpl.Init
+	tplStruct map[string]tpl.Struct
+	tplInit   tpl.Init
 	stmt      map[string]int
 }
 
@@ -242,8 +257,8 @@ func (c *code) StructTPLs() []tpl.TPL {
 	return tps
 }
 
-func (c *code) StructTPL(table string) (tpl.StructTPL, error) {
-	name := SnakeCaseToPascalCase(table)
+func (c *code) StructTPL(table string) (tpl.Struct, error) {
+	name := tpl.SnakeCaseToPascalCase(table)
 	// 如果存在，就返回
 	if tp, ok := c.tplStruct[name]; ok {
 		return tp, nil
@@ -254,20 +269,16 @@ func (c *code) StructTPL(table string) (tpl.StructTPL, error) {
 		return nil, unknownTable(table)
 	}
 	// 新建模板
-	tp := new(tpl.Struct)
-	tp.Pkg = c.pkg
-	tp.Name = name
+	tp := tpl.NewStruct(c.pkg, name)
 	for _, col := range t.Columns() {
-		f := new(tpl.Field)
-		f.Name = SnakeCaseToPascalCase(col.Name())
-		f.Type = col.GoType()
-		f.Tag = fmt.Sprintf("`json:\"%s\"`", SnakeCaseToCamelCase(col.Name()))
-		tp.Field = append(tp.Field, f)
+		tp.AddField(tpl.SnakeCaseToPascalCase(col.Name()),
+			col.GoType(),
+			fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(col.Name())))
 	}
 	return tp, nil
 }
 
-func (c *code) FuncTPL(sql string, function string, tx bool, params []string) (tpl.FuncTPL, error) {
+func (c *code) FuncTPL(sql string, function string, tx bool, params []string) (tpl.Func, error) {
 	// 直接用数据库测试sql是否正确，如果正确，接下来解析和生成就少了很多不必要的判断了
 	err := c.schema.TestSQL(sql)
 	if err != nil {
@@ -282,13 +293,13 @@ func (c *code) FuncTPL(sql string, function string, tx bool, params []string) (t
 	return c.funcTPL(v, sql, function, tx, params)
 }
 
-func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
+func (c *code) DefaultFuncTPLs(table string) ([]tpl.Func, error) {
 	t := c.schema.GetTable(table)
 	if t == nil {
 		return nil, unknownTable(table)
 	}
-	var tps []tpl.FuncTPL
-	var tp tpl.FuncTPL
+	var tps []tpl.Func
+	var tp tpl.Func
 	var err error
 	// StructCount
 	tp, err = c.defaultFuncCount(t)
@@ -303,7 +314,7 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 	}
 	tps = append(tps, tp)
 	// StructSortList
-	tps = append(tps, c.defaultFuncSortList(t))
+	tps = append(tps, c.defaultFuncPage(t))
 	//
 	pk, npk, uni, nuni, mul, nmul := c.defaultFuncPickColumns(t)
 	// select
@@ -480,47 +491,54 @@ func (c *code) SaveFiles(dir string, clean bool) error {
 	}
 	// 输出struct模板
 	for k, v := range c.tplStruct {
-		err = tpl.SaveFile(v, filepath.Join(dir, PascalCaseToSnakeCase(k)+".go"))
+		err = v.Save(filepath.Join(dir, tpl.PascalCaseToSnakeCase(k)+".go"))
 		if err != nil {
 			return err
 		}
 	}
 	// 输出init模板
-	return tpl.SaveFile(c.tplInit, filepath.Join(dir, c.pkg+".init.go"))
+	return c.tplInit.Save(filepath.Join(dir, c.pkg+".init.go"))
 }
 
-func (c *code) defaultFuncCount(table *db2go.Table) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncCount(table *db2go.Table) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.Reset()
 	sql.WriteString("select count(*) from ")
 	sql.WriteString(table.Name())
-	return c.FuncTPL(sql.String(), SnakeCaseToPascalCase(table.Name())+"Count", false, nil)
+	return c.FuncTPL(sql.String(), tpl.SnakeCaseToPascalCase(table.Name())+"Count", false, nil)
 }
 
-func (c *code) defaultFuncList(table *db2go.Table) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncList(table *db2go.Table) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.WriteString("select * from ")
 	sql.WriteString(table.Name())
 	sql.WriteString(" limit ?,?")
-	return c.FuncTPL(sql.String(), SnakeCaseToPascalCase(table.Name())+"List", false, nil)
+	return c.FuncTPL(sql.String(), tpl.SnakeCaseToPascalCase(table.Name())+"List", false, nil)
 }
 
-func (c *code) defaultFuncSortList(table *db2go.Table) tpl.FuncTPL {
-	structName := SnakeCaseToPascalCase(table.Name())
-	tp := new(tpl.SortStructQuery)
-	tp.Table = table.Name()
-	tp.Func = structName + "SortList"
-	tp.Struct = structName
+func (c *code) defaultFuncPage(table *db2go.Table) tpl.Func {
+	structName := tpl.SnakeCaseToPascalCase(table.Name())
+	tp := new(tpl.SelectPage)
 	tp.Sql = "select * from " + table.Name() + " order by column asc/desc limit begin,total"
+	tp.Func = structName + "Page"
+	tp.Struct = structName
+	tp.Group2Order = "select * from " + table.Name() + " order by "
+	tp.Order = append(tp.Order, "order")
+	tp.Sort = "sort"
+	tp.AfterOrder = "limit ?,?"
+	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "order"})
+	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "sort"})
+	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "begin"})
+	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "total"})
 	for _, col := range table.Columns() {
-		tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.Name()))
+		tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col.Name()))
 	}
 	// 添加到struct模板
-	c.tplStruct[structName].AddFuncTPL(tp)
+	c.tplStruct[structName].AddFunc(tp)
 	return tp
 }
 
-func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.Column) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.Column) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.WriteString("select ")
 	c.defaultFuncFields(&sql, fields)
@@ -531,7 +549,7 @@ func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.
 	return c.FuncTPL(sql.String(), "", false, nil)
 }
 
-func (c *code) defaultFuncInsert(table *db2go.Table) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncInsert(table *db2go.Table) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.WriteString("insert into ")
 	sql.WriteString(table.Name())
@@ -547,7 +565,7 @@ func (c *code) defaultFuncInsert(table *db2go.Table) (tpl.FuncTPL, error) {
 	return c.FuncTPL(sql.String(), "Insert", false, nil)
 }
 
-func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.Column) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.Column) (tpl.Func, error) {
 	column := make([]*db2go.Column, 0)
 	for _, col := range fields {
 		if !col.IsAutoIncrement() {
@@ -573,7 +591,7 @@ func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.
 	return c.FuncTPL(sql.String(), "", false, nil)
 }
 
-func (c *code) defaultFuncDelete(table *db2go.Table, condition []*db2go.Column) (tpl.FuncTPL, error) {
+func (c *code) defaultFuncDelete(table *db2go.Table, condition []*db2go.Column) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.Reset()
 	sql.WriteString("delete from ")
@@ -638,7 +656,7 @@ func (c *code) defaultFuncPickDiffColumns(column *db2go.Column, columns []*db2go
 	return diff
 }
 
-func (c *code) funcTPL(v interface{}, sql string, function string, tx bool, params []string) (tp tpl.FuncTPL, err error) {
+func (c *code) funcTPL(v interface{}, sql string, function string, tx bool, params []string) (tp tpl.Func, err error) {
 	defer func() {
 		err = recoverError()
 	}()
@@ -657,20 +675,20 @@ func (c *code) funcTPL(v interface{}, sql string, function string, tx bool, para
 	}
 	// 替换自定义名称
 	if function != "" {
-		tp.SetFuncName(function)
+		tp.SetFunc(function)
 	}
 	if len(params) > 0 {
-		tp.SetParamName(params)
+		tp.SetParam(params)
 	}
 	// 添加到struct模板
 	s := c.tplStruct[tp.StructName()]
-	s.AddFuncTPL(tp)
-	c.tplInit.Stmt[tp.Stmt()] = tp.SQL()
+	s.AddFunc(tp)
+	tp.SetStmt(c.tplInit.AddStmt(tp.SQL()))
 	// 返回
 	return
 }
 
-func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
+func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
 	t, j, structName := c.funcSelectTable(q)
 	// 占位符
 	var h holders
@@ -689,23 +707,22 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 			for i, a := range args {
 				if a.IsField {
 					a.IsField = false
-					a.Name = SnakeCaseToCamelCase(h.holder[i].table.Name()) + SnakeCaseToPascalCase(h.holder[i].column.Name())
+					a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].table.Name()) + tpl.SnakeCaseToPascalCase(h.holder[i].column.Name())
 				}
 			}
-			tp := new(tpl.StructQuery)
+			tp := new(tpl.SelectList)
 			tp.Tx = tx
 			tp.Sql = sql
 			tp.Struct = structName
-			tp.StmtName = c.funcStmtName()
 			tp.Arg = h.CheckArgs(args)
 			for _, col := range columns {
-				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[0])+"."+SnakeCaseToPascalCase(col[1]))
+				tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[0])+"."+tpl.SnakeCaseToPascalCase(col[1]))
 			}
 			// 函数名
 			var funcName strings.Builder
 			funcName.WriteString("Select")
 			// Field
-			if len(tp.Scan) == len(t.Columns())+len(j.Columns()) {
+			if len(tp.Column) == len(t.Columns())+len(j.Columns()) {
 				funcName.WriteString("All")
 			} else {
 				var tableFields, joinFields []string
@@ -717,11 +734,11 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 					}
 				}
 				if len(tableFields) > 0 {
-					funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
+					funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
 					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
 				}
 				if len(joinFields) > 0 {
-					funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
+					funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
 					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
 				}
 			}
@@ -742,11 +759,11 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 			if len(tableFields) > 0 || len(joinFields) > 0 || len(params) > 0 {
 				funcName.WriteString("By")
 				if len(tableFields) > 0 {
-					funcName.WriteString(SnakeCaseToPascalCase(t.Name()))
+					funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
 					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
 				}
 				if len(joinFields) > 0 {
-					funcName.WriteString(SnakeCaseToPascalCase(j.Name()))
+					funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
 					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
 				}
 				if len(params) > 0 {
@@ -802,26 +819,25 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 			}
 		}
 		if structQueryRow {
-			tp := new(tpl.StructQueryRow)
+			tp := new(tpl.SelectColumn)
 			tp.Tx = tx
 			tp.Sql = sql
 			tp.Struct = structName
-			tp.StmtName = c.funcStmtName()
 			tp.Arg = h.CheckArgs(args)
 			for _, col := range columns {
-				tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[1]))
+				tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
 			}
 			// 函数名
 			var funcName strings.Builder
 			funcName.WriteString("Select")
 			// Field
-			if len(tp.Scan) == len(t.Columns()) {
+			if len(tp.Column) == len(t.Columns()) {
 				funcName.WriteString("All")
 			} else {
-				funcName.WriteString(strings.Join(tp.Scan, ""))
+				funcName.WriteString(strings.Join(tp.Column, ""))
 			}
 			// By
-			fields, params := tpl.ClassifyArgs(tp.Arg)
+			fields, params := tp.Args().Fields(), tp.Args().Params()
 			if len(fields) > 0 || len(params) > 0 {
 				funcName.WriteString("By")
 				funcName.WriteString(strings.Join(fields, ""))
@@ -834,31 +850,30 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 		for i, a := range args {
 			if a.IsField {
 				a.IsField = false
-				a.Name = SnakeCaseToCamelCase(h.holder[i].column.Name())
+				a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].column.Name())
 			}
 		}
 		args = h.CheckArgs(args)
-		tp := new(tpl.StructQuery)
+		tp := new(tpl.SelectList)
 		tp.Tx = tx
 		tp.Sql = sql
 		tp.Struct = structName
-		tp.StmtName = c.funcStmtName()
 		tp.Arg = args
 		for _, col := range columns {
-			tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col[1]))
+			tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
 		}
 		// 函数名
 		var funcName strings.Builder
 		funcName.WriteString("Select")
 		funcName.WriteString(structName)
 		// Field
-		if len(tp.Scan) == len(t.Columns()) {
+		if len(tp.Column) == len(t.Columns()) {
 			funcName.WriteString("All")
 		} else {
-			funcName.WriteString(strings.Join(tp.Scan, ""))
+			funcName.WriteString(strings.Join(tp.Column, ""))
 		}
 		// By
-		params := tpl.PickParams(tp.Arg)
+		params := tp.Args().Params()
 		if len(params) > 0 {
 			funcName.WriteString("By")
 			funcName.WriteString(JoinCamelCaseToPascalCase(params))
@@ -868,21 +883,20 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 	default:
 		// 函数
 		columns := c.funcSelectFuncColumns(q)
-		tp := new(tpl.QueryRow)
+		tp := new(tpl.SelectFunc)
 		tp.Tx = tx
 		tp.Sql = sql
 		tp.Struct = structName
-		tp.StmtName = c.funcStmtName()
 		tp.Arg = h.CheckArgs(h.ToArgs())
 		for _, name := range columns {
-			tp.Return = append(tp.Return, functions[name])
+			tp.Type = append(tp.Type, functions[name])
 		}
 		// 函数名称
 		var funcName strings.Builder
 		funcName.WriteString("Select")
 		funcName.WriteString(structName)
 		funcName.WriteString(JoinSnakeCaseToPascalCase(columns))
-		params := tpl.PickParams(tp.Arg)
+		params := tp.Args().Params()
 		if len(params) > 0 {
 			funcName.WriteString("By")
 			funcName.WriteString(JoinCamelCaseToPascalCase(params))
@@ -894,19 +908,18 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.FuncTPL {
 
 func (c *code) funcSelectTable(q *SelectStmt) (t, j *db2go.Table, structName string) {
 	t = c.funcGetTable(q.Table)
-	struct1Name := SnakeCaseToPascalCase(q.Table)
+	struct1Name := tpl.SnakeCaseToPascalCase(q.Table)
 	structName = struct1Name
 	// 生成join结构
 	if q.Join != "" {
 		j = c.funcGetTable(q.Join)
-		struct2Name := SnakeCaseToPascalCase(q.Join)
+		struct2Name := tpl.SnakeCaseToPascalCase(q.Join)
 		structName += "Join" + struct2Name
 		_, ok := c.tplStruct[structName]
 		if !ok {
-			tp := new(tpl.JoinStruct)
-			tp.Pkg = c.pkg
-			tp.Struct1 = c.tplStruct[struct1Name].(*tpl.Struct)
-			tp.Struct2 = c.tplStruct[struct2Name].(*tpl.Struct)
+			tp := tpl.NewStruct(c.pkg, structName)
+			tp.AddField(struct1Name, "", "")
+			tp.AddField(struct2Name, "", "")
 			c.tplStruct[structName] = tp
 		}
 	}
@@ -1001,7 +1014,7 @@ func (c *code) funcSelectFuncColumns(q *SelectStmt) []string {
 	return functions
 }
 
-func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
+func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.Func {
 	t := c.funcGetTable(q.Table)
 	// 如果sql中省略了(column[, ...])
 	columns := q.Column
@@ -1011,92 +1024,59 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.FuncTPL {
 		}
 	}
 	// 模板
-	switch q.Value.(type) {
-	case *SelectStmt:
-		value := q.Value.(*SelectStmt)
-		// 解析占位符
-		var h holders
-		h.table = t
-		c.parseSelectHolders(&h, value, true)
-		tp := new(tpl.Exec)
-		tp.Tx = tx
-		tp.Sql = sql
-		tp.Struct = SnakeCaseToCamelCase(t.Name())
-		tp.StmtName = c.funcStmtName()
-		tp.Arg = h.CheckArgs(h.ToArgs())
-		// 函数名
-		var funcName strings.Builder
-		funcName.WriteString("Insert")
-		fields, params := tpl.ClassifyArgs(tp.Arg)
-		// InsertTable1FromTable2ByParam
-		funcName.WriteString(tp.Struct)
-		funcName.WriteString(strings.Join(fields, ""))
-		funcName.WriteString("From")
-		funcName.WriteString(value.Table)
-		if len(params) > 0 {
-			funcName.WriteString("By")
-			funcName.WriteString(JoinSnakeCaseToPascalCase(params))
-		}
-		tp.Func = funcName.String()
-		return tp
-	default:
-		values := q.Value.([]interface{})
-		if len(q.Column) < 1 && len(columns) != len(values) {
-			panic(fmt.Errorf("values count '%d' no equal columns count '%d'", len(values), len(columns)))
-		}
-		// 解析占位符
-		var h holders
-		h.table = t
-		for i, v := range values {
-			switch s := v.(type) {
-			case string:
-				if s == "?" {
-					h.AddColumn(columns[i], "=", false)
-				}
-			default:
-				c.parseHolders(&h, v, false)
-			}
-		}
-		tp := new(tpl.StructExec)
-		tp.Tx = tx
-		tp.Sql = sql
-		tp.Struct = SnakeCaseToPascalCase(t.Name())
-		tp.StmtName = c.funcStmtName()
-		tp.Arg = h.CheckArgs(h.ToArgs())
-		// 函数名
-		var funcName strings.Builder
-		funcName.WriteString("Insert")
-		// Insert
-		if len(q.Column) > 0 {
-			// Field
-			fields := tpl.PickFields(tp.Arg)
-			if len(fields) != len(columns) {
-				funcName.WriteString(strings.Join(fields, ""))
-			}
-		}
-		tp.Func = funcName.String()
-		return tp
+	if len(q.Column) < 1 && len(columns) != len(q.Values) {
+		panic(fmt.Errorf("values count '%d' no equal columns count '%d'", len(q.Values), len(columns)))
 	}
+	// 解析占位符
+	var h holders
+	h.table = t
+	for i, v := range q.Values {
+		switch s := v.(type) {
+		case string:
+			if s == "?" {
+				h.AddColumn(columns[i], "=", false)
+			}
+		default:
+			c.parseHolders(&h, v, false)
+		}
+	}
+	tp := new(tpl.Exec)
+	tp.Tx = tx
+	tp.Sql = sql
+	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
+	tp.Arg = h.CheckArgs(h.ToArgs())
+	// 函数名
+	var funcName strings.Builder
+	funcName.WriteString("Insert")
+	// Insert
+	if len(q.Column) > 0 {
+		// Field
+		fields := tp.Args().Fields()
+		if len(fields) != len(columns) {
+			funcName.WriteString(strings.Join(fields, ""))
+		}
+	}
+	tp.Func = funcName.String()
+	return tp
 }
 
-func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.FuncTPL {
+func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.Func {
 	t := c.funcGetTable(q.Table)
 	var h holders
 	h.table = t
 	// 解析where占位符
 	c.parseHolders(&h, q.Where, false)
 	// 模板
-	tp := new(tpl.StructExec)
+	tp := new(tpl.Exec)
 	tp.Tx = tx
 	tp.Sql = sql
-	tp.Struct = SnakeCaseToPascalCase(t.Name())
-	tp.StmtName = c.funcStmtName()
+	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
 	tp.Arg = h.CheckArgs(h.ToArgs())
 	// 函数名
 	var funcName strings.Builder
 	funcName.WriteString("Delete")
 	// DeleteBy
-	fields := tpl.PickFields(tp.Arg)
+	fields := tp.Args().Fields()
 	if len(fields) > 0 {
 		funcName.WriteString("By")
 		funcName.WriteString(strings.Join(fields, ""))
@@ -1105,7 +1085,7 @@ func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.FuncTPL {
 	return tp
 }
 
-func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.FuncTPL {
+func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.Func {
 	t := c.funcGetTable(q.Table)
 	// 解析占位符
 	var h1, h2 holders
@@ -1116,22 +1096,21 @@ func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.FuncTPL {
 	}
 	c.parseHolders(&h2, q.Where, false)
 	// 模板
-	tp := new(tpl.StructExec)
+	tp := new(tpl.Exec)
 	tp.Tx = tx
 	tp.Sql = sql
-	tp.Struct = SnakeCaseToPascalCase(t.Name())
-	tp.StmtName = c.funcStmtName()
-	args1 := h1.ToArgs() // 用于函数名
-	args2 := h2.ToArgs() // 用于函数名
+	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
+	var args1 tpl.Args = h1.ToArgs() // 用于函数名
+	var args2 tpl.Args = h2.ToArgs() // 用于函数名
 	tp.Arg = append(args1, args2...)
 	// 函数名
 	var funcName strings.Builder
 	funcName.WriteString("Update")
 	// UpdateFieldByFieldParam
-	fields := tpl.PickFields(args1)
+	fields := args1.Fields()
 	funcName.WriteString(strings.Join(fields, ""))
-	fields = tpl.PickFields(args2)
-	params := tpl.PickParams(tp.Arg)
+	fields = args2.Fields()
+	params := tp.Args().Params()
 	if len(fields) > 0 || len(params) > 0 {
 		funcName.WriteString("By")
 		funcName.WriteString(strings.Join(fields, ""))
@@ -1147,10 +1126,6 @@ func (c *code) funcGetTable(table string) *db2go.Table {
 		panic(unknownTable(table))
 	}
 	return t
-}
-
-func (c *code) funcStmtName() string {
-	return "stmt" + strconv.Itoa(len(c.tplInit.Stmt))
 }
 
 func (c *code) parseHolders(h *holders, v interface{}, sub bool) {
