@@ -1,4 +1,4 @@
-# db2go
+# sql2go
 这是一个生成golang数据库访问代码的工具
 ## 运行
 支持两种方式
@@ -57,8 +57,6 @@ docker包装了一个web服务
 1. "all|distinct"，可以是占位符'?'。
 1. "*|column|function[[as]alias][, ...]"，必须是其中一种，不能是混合。
 1. "table [[as]alias]"，table不能是子查询。
-1. "group by column [, ...]"，column可以是占位符'?'。
-1. "order by column [, ...]"，column可以是占位符'?'。
 1. "limit{start}[total]"，start和total可以是占位符'?'。
 ```
 select [all|distinct] *|column|function[[as]alias][, ...] from table [[as]alias]

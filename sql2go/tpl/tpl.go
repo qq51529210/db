@@ -15,6 +15,7 @@ var (
 	tplStructExec,
 	tplStructQuery,
 	tplStructQueryRow,
+	tplSortStructQuery,
 	tplInit,
 	tplStruct,
 	tplJoinStruct *template.Template
@@ -31,6 +32,7 @@ func init() {
 	tplQueryRow = template.Must(template.New("QueryRow").Parse(tplStrQueryRow))
 	tplStructQuery = template.Must(template.New("StructQuery").Parse(tplStrStructQuery))
 	tplStructQueryRow = template.Must(template.New("StructQueryRow").Parse(tplStrStructQueryRow))
+	tplSortStructQuery = template.Must(template.New("SortStructQuery").Parse(tplStrSortStructQuery))
 }
 
 // 保存到文件

@@ -348,6 +348,7 @@ func (c *code) StructTPL(table string) (tpl.StructTPL, error) {
 		f := new(tpl.Field)
 		f.Name = SnakeCaseToPascalCase(col.Name())
 		f.Type = col.GoType()
+		f.Tag = fmt.Sprintf("`json:\"%s\"`", SnakeCaseToCamelCase(col.Name()))
 		tp.Field = append(tp.Field, f)
 	}
 	return tp, nil
@@ -373,97 +374,175 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.FuncTPL, error) {
 	if t == nil {
 		return nil, unknownTable(table)
 	}
-	// 区分列
-	pk, npk, uni, nuni, mul, nmul := c.defaultFuncPickColumns(t)
 	var tps []tpl.FuncTPL
-	// StructList
-	tp, err := c.FuncTPL(c.defaultFuncList(t), SnakeCaseToPascalCase(t.Name())+"List", false, nil)
-	if err != nil {
-		return nil, err
-	}
-	tps = append(tps, tp)
+	var tp tpl.FuncTPL
+	var err error
 	// StructCount
-	tp, err = c.FuncTPL(c.defaultFuncCount(t), SnakeCaseToPascalCase(t.Name())+"Count", false, nil)
+	tp, err = c.defaultFuncCount(t)
 	if err != nil {
 		return nil, err
 	}
 	tps = append(tps, tp)
-	// Struct.Insert
-	tp, err = c.FuncTPL(c.defaultFuncInsert(t, t.Columns()), "Insert", false, nil)
+	// StructList
+	tp, err = c.defaultFuncList(t)
 	if err != nil {
 		return nil, err
 	}
 	tps = append(tps, tp)
-	if len(pk) > 0 {
-		// Struct.Select
-		tp, err = c.FuncTPL(c.defaultFuncSelect(t, npk, pk), "Select", false, nil)
-		if err != nil {
-			return nil, err
-		}
-		tps = append(tps, tp)
-		// Struct.Update
-		tp, err = c.FuncTPL(c.defaultFuncUpdate(t, npk, pk), "Update", false, nil)
-		if err != nil {
-			return nil, err
-		}
-		tps = append(tps, tp)
-		// Struct.Delete
-		tp, err = c.FuncTPL(c.defaultFuncDelete(t, t.Columns()), "Delete", false, nil)
-		if err != nil {
-			return nil, err
-		}
-		tps = append(tps, tp)
-	}
-	if len(uni) > 0 {
-		for _, s := range uni {
-			key := []*db2go.Column{s}
-			// Struct.SelectBy
-			tp, err = c.FuncTPL(c.defaultFuncSelect(t, nuni, key), "", false, nil)
+	// StructSortList
+	tps = append(tps, c.defaultFuncSortList(t))
+	//
+	pk, npk, uni, nuni, mul, nmul := c.defaultFuncPickColumns(t)
+	// select
+	{
+		// 默认
+		if len(pk) > 0 {
+			tp, err = c.defaultFuncSelect(t, npk, pk)
 			if err != nil {
 				return nil, err
 			}
 			tps = append(tps, tp)
-			// Struct.UpdateBy
-			sql := c.defaultFuncUpdate(t, nuni, key)
-			if sql != "" {
-				tp, err = c.FuncTPL(sql, "", false, nil)
+		}
+		if len(uni) > 0 {
+			tp, err = c.defaultFuncSelect(t, nuni, uni)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
+		}
+		if len(mul) > 0 {
+			tp, err = c.defaultFuncSelect(t, nmul, mul)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
+		}
+		// 单个唯一
+		if len(pk) > 1 {
+			for _, col := range pk {
+				tp, err = c.defaultFuncSelect(t, c.defaultFuncPickDiffColumns(col, t.Columns()), []*db2go.Column{col})
 				if err != nil {
 					return nil, err
 				}
 				tps = append(tps, tp)
 			}
-			// Struct.DeleteBy
-			tp, err = c.FuncTPL(c.defaultFuncDelete(t, key), "", false, nil)
+		}
+		if len(uni) > 1 {
+			for _, col := range uni {
+				tp, err = c.defaultFuncSelect(t, c.defaultFuncPickDiffColumns(col, t.Columns()), []*db2go.Column{col})
+				if err != nil {
+					return nil, err
+				}
+				tps = append(tps, tp)
+			}
+		}
+	}
+	// insert
+	tp, err = c.defaultFuncInsert(t)
+	if err != nil {
+		return nil, err
+	}
+	tps = append(tps, tp)
+	// update
+	{
+		// 默认
+		if len(pk) > 0 {
+			tp, err = c.defaultFuncUpdate(t, npk, pk)
+			if err != nil {
+				return nil, err
+			}
+			if tp != nil {
+				tps = append(tps, tp)
+			}
+		}
+		if len(uni) > 0 {
+			tp, err = c.defaultFuncUpdate(t, nuni, uni)
+			if err != nil {
+				return nil, err
+			}
+			if tp != nil {
+				tps = append(tps, tp)
+			}
+		}
+		if len(mul) > 0 {
+			tp, err = c.defaultFuncUpdate(t, nmul, mul)
+			if err != nil {
+				return nil, err
+			}
+			if tp != nil {
+				tps = append(tps, tp)
+			}
+		}
+		// 单个唯一
+		if len(pk) > 1 {
+			for _, col := range pk {
+				tp, err = c.defaultFuncUpdate(t, c.defaultFuncPickDiffColumns(col, t.Columns()), []*db2go.Column{col})
+				if err != nil {
+					return nil, err
+				}
+				if tp != nil {
+					tps = append(tps, tp)
+				}
+			}
+		}
+		if len(uni) > 1 {
+			for _, col := range uni {
+				tp, err = c.defaultFuncUpdate(t, c.defaultFuncPickDiffColumns(col, t.Columns()), []*db2go.Column{col})
+				if err != nil {
+					return nil, err
+				}
+				if tp != nil {
+					tps = append(tps, tp)
+				}
+			}
+		}
+	}
+	// delete
+	{
+		// 默认
+		if len(pk) > 0 {
+			tp, err = c.defaultFuncDelete(t, pk)
 			if err != nil {
 				return nil, err
 			}
 			tps = append(tps, tp)
 		}
-	}
-	if len(mul) > 0 {
-		// Struct.SelectBy
-		tp, err = c.FuncTPL(c.defaultFuncSelect(t, nmul, mul), "", false, nil)
-		if err != nil {
-			return nil, err
-		}
-		tps = append(tps, tp)
-		// Struct.UpdateBy
-		sql := c.defaultFuncUpdate(t, nuni, mul)
-		if sql != "" {
-			tp, err = c.FuncTPL(sql, "", false, nil)
+		if len(uni) > 0 {
+			tp, err = c.defaultFuncDelete(t, uni)
 			if err != nil {
 				return nil, err
 			}
 			tps = append(tps, tp)
 		}
-		// Struct.DeleteBy
-		tp, err = c.FuncTPL(c.defaultFuncDelete(t, mul), "", false, nil)
-		if err != nil {
-			return nil, err
+		if len(mul) > 0 {
+			tp, err = c.defaultFuncDelete(t, mul)
+			if err != nil {
+				return nil, err
+			}
+			tps = append(tps, tp)
 		}
-		tps = append(tps, tp)
+		// 单个唯一
+		if len(pk) > 1 {
+			for _, col := range pk {
+				tp, err = c.defaultFuncDelete(t, []*db2go.Column{col})
+				if err != nil {
+					return nil, err
+				}
+				tps = append(tps, tp)
+			}
+		}
+		if len(uni) > 1 {
+			for _, col := range uni {
+				tp, err = c.defaultFuncDelete(t, []*db2go.Column{col})
+				if err != nil {
+					return nil, err
+				}
+				if tp != nil {
+					tps = append(tps, tp)
+				}
+			}
+		}
 	}
-	// 返回
 	return tps, nil
 }
 
@@ -497,39 +576,38 @@ func (c *code) SaveFiles(dir string, clean bool) error {
 	return tpl.SaveFile(c.tplInit, filepath.Join(dir, c.pkg+".init.go"))
 }
 
-func (c *code) defaultFuncCount(table *db2go.Table) string {
+func (c *code) defaultFuncCount(table *db2go.Table) (tpl.FuncTPL, error) {
 	var sql strings.Builder
 	sql.Reset()
 	sql.WriteString("select count(*) from ")
 	sql.WriteString(table.Name())
-	return sql.String()
+	return c.FuncTPL(sql.String(), SnakeCaseToPascalCase(table.Name())+"Count", false, nil)
 }
 
-func (c *code) defaultFuncList(table *db2go.Table) string {
+func (c *code) defaultFuncList(table *db2go.Table) (tpl.FuncTPL, error) {
 	var sql strings.Builder
 	sql.WriteString("select * from ")
 	sql.WriteString(table.Name())
 	sql.WriteString(" limit ?,?")
-	return sql.String()
+	return c.FuncTPL(sql.String(), SnakeCaseToPascalCase(table.Name())+"List", false, nil)
 }
 
-func (c *code) defaultFuncInsert(table *db2go.Table, columns []*db2go.Column) string {
-	var sql strings.Builder
-	sql.WriteString("insert into ")
-	sql.WriteString(table.Name())
-	sql.WriteByte('(')
-	c.defaultFuncFields(&sql, columns)
-	sql.WriteByte(')')
-	sql.WriteString(" values(")
-	sql.WriteByte('?')
-	for i := 1; i < len(columns); i++ {
-		sql.WriteString(",?")
+func (c *code) defaultFuncSortList(table *db2go.Table) tpl.FuncTPL {
+	structName := SnakeCaseToPascalCase(table.Name())
+	tp := new(tpl.SortStructQuery)
+	tp.Table = table.Name()
+	tp.Func = structName + "SortList"
+	tp.Struct = structName
+	tp.Sql = "select * from " + table.Name() + " order by column asc/desc limit begin,total"
+	for _, col := range table.Columns() {
+		tp.Scan = append(tp.Scan, SnakeCaseToPascalCase(col.Name()))
 	}
-	sql.WriteByte(')')
-	return sql.String()
+	// 添加到struct模板
+	c.tplStruct[structName].AddFuncTPL(tp)
+	return tp
 }
 
-func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.Column) string {
+func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.Column) (tpl.FuncTPL, error) {
 	var sql strings.Builder
 	sql.WriteString("select ")
 	c.defaultFuncFields(&sql, fields)
@@ -537,20 +615,26 @@ func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.
 	sql.WriteString(table.Name())
 	sql.WriteString(" where ")
 	c.defaultFuncConditions(&sql, condition)
-	return sql.String()
+	return c.FuncTPL(sql.String(), "", false, nil)
 }
 
-func (c *code) defaultFuncDelete(table *db2go.Table, condition []*db2go.Column) string {
+func (c *code) defaultFuncInsert(table *db2go.Table) (tpl.FuncTPL, error) {
 	var sql strings.Builder
-	sql.Reset()
-	sql.WriteString("delete from ")
+	sql.WriteString("insert into ")
 	sql.WriteString(table.Name())
-	sql.WriteString(" where ")
-	c.defaultFuncConditions(&sql, condition)
-	return sql.String()
+	sql.WriteByte('(')
+	c.defaultFuncFields(&sql, table.Columns())
+	sql.WriteByte(')')
+	sql.WriteString(" values(")
+	sql.WriteByte('?')
+	for i := 1; i < len(table.Columns()); i++ {
+		sql.WriteString(",?")
+	}
+	sql.WriteByte(')')
+	return c.FuncTPL(sql.String(), "Insert", false, nil)
 }
 
-func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.Column) string {
+func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.Column) (tpl.FuncTPL, error) {
 	column := make([]*db2go.Column, 0)
 	for _, col := range fields {
 		if !col.IsAutoIncrement() {
@@ -558,7 +642,7 @@ func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.
 		}
 	}
 	if len(column) < 1 {
-		return ""
+		return nil, nil
 	}
 	var sql strings.Builder
 	sql.WriteString("update ")
@@ -573,7 +657,17 @@ func (c *code) defaultFuncUpdate(table *db2go.Table, fields, condition []*db2go.
 	}
 	sql.WriteString(" where ")
 	c.defaultFuncConditions(&sql, condition)
-	return sql.String()
+	return c.FuncTPL(sql.String(), "", false, nil)
+}
+
+func (c *code) defaultFuncDelete(table *db2go.Table, condition []*db2go.Column) (tpl.FuncTPL, error) {
+	var sql strings.Builder
+	sql.Reset()
+	sql.WriteString("delete from ")
+	sql.WriteString(table.Name())
+	sql.WriteString(" where ")
+	c.defaultFuncConditions(&sql, condition)
+	return c.FuncTPL(sql.String(), "", false, nil)
 }
 
 func (c *code) defaultFuncFields(sql *strings.Builder, fields []*db2go.Column) {
@@ -619,6 +713,16 @@ func (c *code) defaultFuncPickColumns(table *db2go.Table) (pk, npk, uni, nuni, m
 		}
 	}
 	return
+}
+
+func (c *code) defaultFuncPickDiffColumns(column *db2go.Column, columns []*db2go.Column) []*db2go.Column {
+	var diff []*db2go.Column
+	for _, c := range columns {
+		if c != column {
+			diff = append(diff, c)
+		}
+	}
+	return diff
 }
 
 func (c *code) funcTPL(v interface{}, sql string, function string, tx bool, params []string) (tp tpl.FuncTPL, err error) {

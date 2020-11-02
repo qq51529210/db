@@ -775,7 +775,7 @@ func (p *parser) Select() *SelectStmt {
 			}
 		}
 		// 是否有排序
-		if matchAny(p.token[0], "asc", "desc", "?") {
+		if p.ifMatch("asc", "desc", "?") {
 			query.Order = p.record()
 		}
 	}

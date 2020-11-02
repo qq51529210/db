@@ -110,15 +110,18 @@ func (t *QueryRow) ReturnString() string {
 
 const tplStrStructQuery = `// {{.Sql}}
 func {{.Func}}({{.TPLParam}}) ([]*{{.Struct}}, error) {
+	var models []*{{.Struct}}
 	rows, err := {{.TPLStmt}}.Query(
 		{{- range .Params}}
 		{{.}},
 		{{- end}}
 	)
 	if nil != err {
-		return nil, err
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+		return models, nil
 	}
-	var models []*{{.Struct}}
 	for rows.Next() {
 		model := new({{.Struct}})
 		err = rows.Scan(
@@ -172,5 +175,55 @@ func (t *StructQueryRow) Execute(w io.Writer) error {
 }
 
 func (t *StructQueryRow) String() string {
+	return tplString(t)
+}
+
+const tplStrSortStructQuery = `// {{.Sql}}
+func {{.Func}}(order, begin, total string, desc bool) ([]*{{.Struct}}, error) {
+	var str strings.Builder
+	str.WriteString("select * from {{.Table}} order by ")
+	str.WriteString(order)
+	if desc {
+		str.WriteString(" desc ")
+	}
+	str.WriteString("limit ")
+	str.WriteString(begin)
+	str.WriteString(",")
+	str.WriteString(total)
+	var models []*{{.Struct}}
+	rows, err := DB.Query(str.String())
+	if nil != err {
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+		return models, nil
+	}
+	for rows.Next() {
+		model := new({{.Struct}})
+		err = rows.Scan(
+			{{- range .Scan}}
+			&model.{{.}},
+			{{- end}}
+		)
+		if nil != err {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+	return models, nil
+}
+`
+
+type SortStructQuery struct {
+	funcTPL
+	Table string
+	Scan  []string
+}
+
+func (t *SortStructQuery) Execute(w io.Writer) error {
+	return tplSortStructQuery.Execute(w, t)
+}
+
+func (t *SortStructQuery) String() string {
 	return tplString(t)
 }

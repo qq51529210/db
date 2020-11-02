@@ -118,12 +118,12 @@ func genCode(config string) {
 				continue
 			}
 			same[t] = 1
-			_, err := code.DefaultFuncTPLs(t)
+			_, err = code.DefaultFuncTPLs(t)
 			log.CheckError(err)
 		}
 		// sql生成FuncTPL
 		for _, s := range c.SQL {
-			_, err := code.FuncTPL(s.Sql, s.Func, s.IsTx, s.Param)
+			_, err = code.FuncTPL(s.Sql, s.Func, s.IsTx, s.Param)
 			log.CheckError(err)
 		}
 		// 保存

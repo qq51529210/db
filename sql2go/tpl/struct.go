@@ -8,7 +8,14 @@ import (
 
 const tplStrStruct = `package {{.Pkg}}
 
-{{.Import}}
+{{$ip := .Import}}
+{{- if $ip -}}
+import (
+{{- range $ip}}
+	"{{.}}"
+{{- end}}
+)
+{{- end}}
 
 type {{.Name}} struct {
 	{{- range .Field}}
@@ -34,19 +41,31 @@ type Struct struct {
 	TPL   []FuncTPL
 }
 
-func (t *Struct) Import() string {
+func (t *Struct) Import() []string {
+	var s []string
 	for _, f := range t.Field {
 		if strings.Contains(f.Type, "sql") {
-			return `import "database/sql"`
+			s = append(s, "database/sql")
+			break
 		}
 	}
 	for _, tp := range t.TPL {
-		stmtTPL, ok := tp.(FuncTPL)
-		if ok || stmtTPL.IsTx() {
-			return `import "database/sql"`
+		ft, ok := tp.(FuncTPL)
+		if ok || ft.IsTx() {
+			if len(s) == 0 {
+				s = append(s, "database/sql")
+				break
+			}
 		}
 	}
-	return ""
+	for _, tp := range t.TPL {
+		_, ok := tp.(*SortStructQuery)
+		if ok {
+			s = append(s, "strings")
+			break
+		}
+	}
+	return s
 }
 
 func (t *Struct) Execute(w io.Writer) error {
@@ -63,7 +82,14 @@ func (t *Struct) AddFuncTPL(tpl FuncTPL) {
 
 const tplStrJoinStruct = `package {{.Pkg}}
 
-{{.Import}}
+{{$ip := .Import}}
+{{- if $ip}}
+import (
+{{- range $ip}}
+	"{{.}}"
+{{- end}}
+}
+{{- end}}
 
 type {{.StructName}} struct {
 	{{.Struct1.Name}}
@@ -82,14 +108,23 @@ type JoinStruct struct {
 	TPL     []FuncTPL
 }
 
-func (t *JoinStruct) Import() string {
+func (t *JoinStruct) Import() []string {
+	var s []string
 	for _, tp := range t.TPL {
-		stmtTPL, ok := tp.(FuncTPL)
-		if ok || stmtTPL.IsTx() {
-			return `import "database/sql"`
+		ft, ok := tp.(FuncTPL)
+		if ok || ft.IsTx() {
+			s = append(s, "database/sql")
+			break
 		}
 	}
-	return ""
+	for _, tp := range t.TPL {
+		_, ok := tp.(*SortStructQuery)
+		if ok {
+			s = append(s, "strings")
+			break
+		}
+	}
+	return s
 }
 
 func (t *JoinStruct) Execute(w io.Writer) error {
