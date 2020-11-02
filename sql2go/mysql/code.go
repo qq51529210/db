@@ -522,12 +522,10 @@ func (c *code) defaultFuncPage(table *db2go.Table) tpl.Func {
 	tp.Sql = "select * from " + table.Name() + " order by column asc/desc limit begin,total"
 	tp.Func = structName + "Page"
 	tp.Struct = structName
-	tp.Group2Order = "select * from " + table.Name() + " order by "
+	tp.Group2Order = "select * from " + table.Name() + " order by"
 	tp.Order = append(tp.Order, "order")
-	tp.Sort = "sort"
+	tp.Sort = true
 	tp.AfterOrder = "limit ?,?"
-	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "order"})
-	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "sort"})
 	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "begin"})
 	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "total"})
 	for _, col := range table.Columns() {
@@ -723,7 +721,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
 			funcName.WriteString("Select")
 			// Field
 			if len(tp.Column) == len(t.Columns())+len(j.Columns()) {
-				funcName.WriteString("All")
+				funcName.WriteString("List")
 			} else {
 				var tableFields, joinFields []string
 				for _, col := range columns {
@@ -832,7 +830,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
 			funcName.WriteString("Select")
 			// Field
 			if len(tp.Column) == len(t.Columns()) {
-				funcName.WriteString("All")
+				funcName.WriteString("List")
 			} else {
 				funcName.WriteString(strings.Join(tp.Column, ""))
 			}
@@ -868,7 +866,7 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
 		funcName.WriteString(structName)
 		// Field
 		if len(tp.Column) == len(t.Columns()) {
-			funcName.WriteString("All")
+			funcName.WriteString("List")
 		} else {
 			funcName.WriteString(strings.Join(tp.Column, ""))
 		}

@@ -21,8 +21,15 @@ type {{.Name}} struct {
 	{{- end}}
 }
 
-func Read{{.Name}}List(rows *sql.Rows) ([]*{{.Name}}, error) {
+func Read{{.Name}}List(query string, args... interface{}) ([]*{{.Name}}, error) {
 	var models []*{{.Name}}
+	rows, err := DB.Query(query, args...)
+	if nil != err {
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+		return models, nil
+	}
 	for rows.Next() {
 		model := new({{.Name}})
 		err := rows.Scan(

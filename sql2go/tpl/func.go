@@ -7,7 +7,7 @@ import (
 
 var (
 	tplSelectFunc = template.Must(template.New("SelectFunc").Parse(`// {{.Sql}}
-func {{.Func}} ({{.TPLParam}}) ({{.TPLReturn}}) {
+func {{.Func}}({{.TPLParam}}) ({{.TPLReturn}}) {
 	{{- range $i,$s := .Type}}
 	var m{{$i}} {{$s}}
 	{{- end}}
@@ -98,7 +98,8 @@ func {{.Func}}({{.TPLParam}}) ([]*{{.Struct}}, error) {
 	{{- end}}
 
 	{{- if .Sort}}
-	str.WriteString("{{.Sort}} ")
+	str.WriteString(sort)
+	str.WriteString(" ")
 	{{- end}}
 
 	{{- if .AfterOrder}}
@@ -131,7 +132,6 @@ func {{.Func}}({{.TPLParam}}) ([]*{{.Struct}}, error) {
 	}
 	return models, nil
 }
-
 `))
 
 	tplExec = template.Must(template.New("Exec").Parse(`// {{.Sql}}
@@ -272,7 +272,7 @@ type SelectPage struct {
 	Group       []string
 	Group2Order string
 	Order       []string
-	Sort        string
+	Sort        bool
 	AfterOrder  string
 }
 
@@ -289,6 +289,40 @@ func (t *SelectPage) TPLStmt() string {
 		return "tx"
 	}
 	return "DB"
+}
+
+func (t *SelectPage) TPLParam() string {
+	var str strings.Builder
+	if t.Tx {
+		str.WriteString("tx *sql.Tx")
+	}
+	if len(t.Group) > 0 {
+		if t.Tx {
+			str.WriteString(", ")
+		}
+		str.WriteString(strings.Join(t.Group, ", "))
+		str.WriteString(" string")
+	}
+	if len(t.Order) > 0 {
+		if t.Tx || len(t.Group) > 0 {
+			str.WriteString(", ")
+		}
+		str.WriteString(strings.Join(t.Order, ", "))
+		if t.Sort {
+			str.WriteString(", sort")
+		}
+		str.WriteString(" string")
+	}
+	p := t.Args().Params()
+	if len(p) < 1 {
+		return str.String()
+	}
+	if str.Len() > 0 {
+		str.WriteString(", ")
+	}
+	str.WriteString(strings.Join(p, ", "))
+	str.WriteString(" interface{}")
+	return str.String()
 }
 
 func (t *SelectPage) Params() []string {
