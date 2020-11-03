@@ -47,19 +47,6 @@ func JoinCamelCaseToPascalCase(ss []string) string {
 	return str.String()
 }
 
-func recoverError() error {
-	re := recover()
-	if re != nil {
-		e, ok := re.(error)
-		if ok {
-			return e
-		} else {
-			return fmt.Errorf("%v", e)
-		}
-	}
-	return nil
-}
-
 func unknownTable(table string) error {
 	return fmt.Errorf("unknown table '%s'", table)
 }
@@ -78,6 +65,8 @@ type holders struct {
 	join       *db2go.Table
 	joinAlias  string
 	holder     []*holder
+	group      []*holder
+	order      []*holder
 }
 
 func (h *holders) AddColumn(column, operator string, sub bool) {
@@ -681,13 +670,12 @@ func (c *code) funcTPL(v interface{}, sql string, function string, tx bool, para
 	// 添加到struct模板
 	s := c.tplStruct[tp.StructName()]
 	s.AddFunc(tp)
-	tp.SetStmt(c.tplInit.AddStmt(tp.SQL()))
 	// 返回
 	return
 }
 
 func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
-	t, j, structName := c.funcSelectTable(q)
+	t, j, structName := c.funcSelectCheckJoinTable(q)
 	// 占位符
 	var h holders
 	h.table = t
@@ -698,213 +686,13 @@ func (c *code) funcSelect(q *SelectStmt, sql string, tx bool) tpl.Func {
 	// 是column还是function
 	switch q.Column[0].Expression.(type) {
 	case string:
-		columns := c.funcSelectColumns(q, t, j)
-		args := h.ToArgs()
-		if j != nil {
-			// 把所有的字段变成参数
-			for i, a := range args {
-				if a.IsField {
-					a.IsField = false
-					a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].table.Name()) + tpl.SnakeCaseToPascalCase(h.holder[i].column.Name())
-				}
-			}
-			tp := new(tpl.SelectList)
-			tp.Tx = tx
-			tp.Sql = sql
-			tp.Struct = structName
-			tp.Arg = h.CheckArgs(args)
-			for _, col := range columns {
-				tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[0])+"."+tpl.SnakeCaseToPascalCase(col[1]))
-			}
-			// 函数名
-			var funcName strings.Builder
-			funcName.WriteString("Select")
-			// Field
-			if len(tp.Column) == len(t.Columns())+len(j.Columns()) {
-				funcName.WriteString("List")
-			} else {
-				var tableFields, joinFields []string
-				for _, col := range columns {
-					if col[0] == t.Name() {
-						tableFields = append(tableFields, col[1])
-					} else {
-						joinFields = append(joinFields, col[1])
-					}
-				}
-				if len(tableFields) > 0 {
-					funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
-					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
-				}
-				if len(joinFields) > 0 {
-					funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
-					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
-				}
-			}
-			// By
-			var tableFields, joinFields []string
-			params := make([]string, 0)
-			for i, a := range tp.Arg {
-				if a.IsField {
-					if h.holder[i].table == t {
-						tableFields = append(tableFields, h.holder[i].column.Name())
-					} else {
-						joinFields = append(joinFields, h.holder[i].column.Name())
-					}
-				} else {
-					params = append(params, a.Name)
-				}
-			}
-			if len(tableFields) > 0 || len(joinFields) > 0 || len(params) > 0 {
-				funcName.WriteString("By")
-				if len(tableFields) > 0 {
-					funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
-					funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
-				}
-				if len(joinFields) > 0 {
-					funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
-					funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
-				}
-				if len(params) > 0 {
-					funcName.WriteString(JoinCamelCaseToPascalCase(params))
-				}
-			}
-			tp.Func = funcName.String()
-			return tp
-		}
-		// 检查条件参数，是否唯一列，而且运算符是'='，才能用tpl.StructQueryRow
-		structQueryRow := false
-		mul := make([]int, 0)
-		for i, a := range args {
-			if a.IsField {
-				if h.holder[i].operator == "=" {
-					if h.holder[i].column.IsPrimaryKey() ||
-						h.holder[i].column.IsUnique() {
-						structQueryRow = true
-						break
-					}
-					if h.holder[i].column.IsMulUnique() {
-						mul = append(mul, i)
-					}
-				}
-			}
-		}
-		// 联合唯一
-		if len(mul) > 0 {
-			// t表的所有联合唯一列
-			mulColumn, _ := t.MulUniqueColumns()
-			// 如果不相等，肯定不包含了
-			if len(mul) == len(mulColumn) {
-				for len(mul) > 0 {
-					// mul的第一项是否在mulColumn中
-					ok := false
-					for i, mc := range mulColumn {
-						if mc == h.holder[mul[0]].column {
-							mulColumn = append(mulColumn[:i], mulColumn[i+1:]...)
-							ok = true
-							break
-						}
-					}
-					if !ok {
-						break
-					}
-					// 在，去掉第一项，继续
-					mul = mul[1:]
-					// 完全匹配
-					if len(mulColumn) == 0 {
-						structQueryRow = true
-					}
-				}
-			}
-		}
-		if structQueryRow {
-			tp := new(tpl.SelectColumn)
-			tp.Tx = tx
-			tp.Sql = sql
-			tp.Struct = structName
-			tp.Arg = h.CheckArgs(args)
-			for _, col := range columns {
-				tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
-			}
-			// 函数名
-			var funcName strings.Builder
-			funcName.WriteString("Select")
-			// Field
-			if len(tp.Column) == len(t.Columns()) {
-				funcName.WriteString("List")
-			} else {
-				funcName.WriteString(strings.Join(tp.Column, ""))
-			}
-			// By
-			fields, params := tp.Args().Fields(), tp.Args().Params()
-			if len(fields) > 0 || len(params) > 0 {
-				funcName.WriteString("By")
-				funcName.WriteString(strings.Join(fields, ""))
-				funcName.WriteString(JoinCamelCaseToPascalCase(params))
-			}
-			tp.Func = funcName.String()
-			return tp
-		}
-		// 没有找到唯一列，那么所有的列全转成参数
-		for i, a := range args {
-			if a.IsField {
-				a.IsField = false
-				a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].column.Name())
-			}
-		}
-		args = h.CheckArgs(args)
-		tp := new(tpl.SelectList)
-		tp.Tx = tx
-		tp.Sql = sql
-		tp.Struct = structName
-		tp.Arg = args
-		for _, col := range columns {
-			tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
-		}
-		// 函数名
-		var funcName strings.Builder
-		funcName.WriteString("Select")
-		funcName.WriteString(structName)
-		// Field
-		if len(tp.Column) == len(t.Columns()) {
-			funcName.WriteString("List")
-		} else {
-			funcName.WriteString(strings.Join(tp.Column, ""))
-		}
-		// By
-		params := tp.Args().Params()
-		if len(params) > 0 {
-			funcName.WriteString("By")
-			funcName.WriteString(JoinCamelCaseToPascalCase(params))
-		}
-		tp.Func = funcName.String()
-		return tp
+		return c.funcSelectColumn(q, sql, tx, t, j, structName, &h)
 	default:
-		// 函数
-		columns := c.funcSelectFuncColumns(q)
-		tp := new(tpl.SelectFunc)
-		tp.Tx = tx
-		tp.Sql = sql
-		tp.Struct = structName
-		tp.Arg = h.CheckArgs(h.ToArgs())
-		for _, name := range columns {
-			tp.Type = append(tp.Type, functions[name])
-		}
-		// 函数名称
-		var funcName strings.Builder
-		funcName.WriteString("Select")
-		funcName.WriteString(structName)
-		funcName.WriteString(JoinSnakeCaseToPascalCase(columns))
-		params := tp.Args().Params()
-		if len(params) > 0 {
-			funcName.WriteString("By")
-			funcName.WriteString(JoinCamelCaseToPascalCase(params))
-		}
-		tp.Func = funcName.String()
-		return tp
+		return c.funcSelectFunc(q, sql, tx, structName, &h)
 	}
 }
 
-func (c *code) funcSelectTable(q *SelectStmt) (t, j *db2go.Table, structName string) {
+func (c *code) funcSelectCheckJoinTable(q *SelectStmt) (t, j *db2go.Table, structName string) {
 	t = c.funcGetTable(q.Table)
 	struct1Name := tpl.SnakeCaseToPascalCase(q.Table)
 	structName = struct1Name
@@ -924,7 +712,7 @@ func (c *code) funcSelectTable(q *SelectStmt) (t, j *db2go.Table, structName str
 	return
 }
 
-func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
+func (c *code) funcSelectParseColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 	var columns [][2]string
 	// 不能有相同列
 	same1 := make(map[string]int)
@@ -1003,13 +791,236 @@ func (c *code) funcSelectColumns(q *SelectStmt, t, j *db2go.Table) [][2]string {
 	return columns
 }
 
-func (c *code) funcSelectFuncColumns(q *SelectStmt) []string {
-	var functions []string
+func (c *code) funcSelectFunc(q *SelectStmt, sql string, tx bool, structName string, h *holders) tpl.Func {
+	// 函数
+	var columns []string
 	for _, col := range q.Column {
 		v := col.Expression.(*FuncExpressionStmt)
-		functions = append(functions, v.Name)
+		columns = append(columns, v.Name)
 	}
-	return functions
+	// 模板
+	tp := new(tpl.SelectFunc)
+	tp.Tx = tx
+	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
+	tp.Struct = structName
+	args := h.ToArgs()
+	for _, a := range args {
+		a.IsField = false
+	}
+	tp.Arg = h.CheckArgs(args)
+	for _, name := range columns {
+		tp.Type = append(tp.Type, functions[name])
+	}
+	// 函数名称
+	var funcName strings.Builder
+	funcName.WriteString("Select")
+	funcName.WriteString(structName)
+	funcName.WriteString(JoinSnakeCaseToPascalCase(columns))
+	params := tp.Args().Params()
+	if len(params) > 0 {
+		funcName.WriteString("By")
+		funcName.WriteString(JoinCamelCaseToPascalCase(params))
+	}
+	tp.Func = funcName.String()
+	return tp
+}
+
+func (c *code) funcSelectColumn(q *SelectStmt, sql string, tx bool, t, j *db2go.Table, structName string, h *holders) tpl.Func {
+	columns := c.funcSelectParseColumns(q, t, j)
+	if j != nil {
+		return c.funcSelectJoinColumn(sql, tx, t, j, structName, columns, h)
+	}
+	args := h.ToArgs()
+	if c.funcSelectCheckUnique(t, args, h) {
+		tp := new(tpl.SelectColumn)
+		tp.Tx = tx
+		tp.Sql = sql
+		tp.Stmt = c.tplInit.AddStmt(sql)
+		tp.Struct = structName
+		tp.Arg = h.CheckArgs(args)
+		for _, col := range columns {
+			tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
+		}
+		// 函数名
+		var funcName strings.Builder
+		funcName.WriteString("Select")
+		// Field
+		if len(tp.Column) == len(t.Columns()) {
+			funcName.WriteString("List")
+		} else {
+			funcName.WriteString(strings.Join(tp.Column, ""))
+		}
+		// By
+		fields, params := tp.Args().Fields(), tp.Args().Params()
+		if len(fields) > 0 || len(params) > 0 {
+			funcName.WriteString("By")
+			funcName.WriteString(strings.Join(fields, ""))
+			funcName.WriteString(JoinCamelCaseToPascalCase(params))
+		}
+		tp.Func = funcName.String()
+		return tp
+	}
+	return c.funcSelectList(sql, tx, t, args, structName, columns, h)
+}
+
+func (c *code) funcSelectList(sql string, tx bool, t *db2go.Table, args []*tpl.Arg, structName string, columns [][2]string, h *holders) tpl.Func {
+	// 没有找到唯一列，那么所有的列全转成参数
+	for i, a := range args {
+		if a.IsField {
+			a.IsField = false
+			a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].column.Name())
+		}
+	}
+	args = h.CheckArgs(args)
+	tp := new(tpl.SelectList)
+	tp.Tx = tx
+	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
+	tp.Struct = structName
+	tp.Arg = args
+	for _, col := range columns {
+		tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
+	}
+	// 函数名
+	var funcName strings.Builder
+	funcName.WriteString("Select")
+	funcName.WriteString(structName)
+	// Field
+	if len(tp.Column) == len(t.Columns()) {
+		funcName.WriteString("List")
+	} else {
+		funcName.WriteString(strings.Join(tp.Column, ""))
+	}
+	// By
+	params := tp.Args().Params()
+	if len(params) > 0 {
+		funcName.WriteString("By")
+		funcName.WriteString(JoinCamelCaseToPascalCase(params))
+	}
+	tp.Func = funcName.String()
+	return tp
+}
+
+func (c *code) funcSelectJoinColumn(sql string, tx bool, t, j *db2go.Table, structName string, columns [][2]string, h *holders) tpl.Func {
+	args := h.ToArgs()
+	// 把所有的字段变成参数
+	for i, a := range args {
+		if a.IsField {
+			a.IsField = false
+			a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].table.Name()) + tpl.SnakeCaseToPascalCase(h.holder[i].column.Name())
+		}
+	}
+	tp := new(tpl.SelectList)
+	tp.Tx = tx
+	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
+	tp.Struct = structName
+	tp.Arg = h.CheckArgs(args)
+	for _, col := range columns {
+		tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[0])+"."+tpl.SnakeCaseToPascalCase(col[1]))
+	}
+	// 函数名
+	var funcName strings.Builder
+	funcName.WriteString("Select")
+	// Field
+	if len(tp.Column) == len(t.Columns())+len(j.Columns()) {
+		funcName.WriteString("List")
+	} else {
+		var tableFields, joinFields []string
+		for _, col := range columns {
+			if col[0] == t.Name() {
+				tableFields = append(tableFields, col[1])
+			} else {
+				joinFields = append(joinFields, col[1])
+			}
+		}
+		if len(tableFields) > 0 {
+			funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
+			funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
+		}
+		if len(joinFields) > 0 {
+			funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
+			funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+		}
+	}
+	// By
+	var tableFields, joinFields []string
+	params := make([]string, 0)
+	for i, a := range tp.Arg {
+		if a.IsField {
+			if h.holder[i].table == t {
+				tableFields = append(tableFields, h.holder[i].column.Name())
+			} else {
+				joinFields = append(joinFields, h.holder[i].column.Name())
+			}
+		} else {
+			params = append(params, a.Name)
+		}
+	}
+	if len(tableFields) > 0 || len(joinFields) > 0 || len(params) > 0 {
+		funcName.WriteString("By")
+		if len(tableFields) > 0 {
+			funcName.WriteString(tpl.SnakeCaseToPascalCase(t.Name()))
+			funcName.WriteString(JoinSnakeCaseToPascalCase(tableFields))
+		}
+		if len(joinFields) > 0 {
+			funcName.WriteString(tpl.SnakeCaseToPascalCase(j.Name()))
+			funcName.WriteString(JoinSnakeCaseToPascalCase(joinFields))
+		}
+		if len(params) > 0 {
+			funcName.WriteString(JoinCamelCaseToPascalCase(params))
+		}
+	}
+	tp.Func = funcName.String()
+	return tp
+}
+
+func (c *code) funcSelectCheckUnique(t *db2go.Table, args []*tpl.Arg, h *holders) bool {
+	// 检查条件参数，是否唯一列，而且运算符是'='，才能用tpl.StructQueryRow
+	mul := make([]int, 0)
+	for i, a := range args {
+		if a.IsField {
+			if h.holder[i].operator == "=" {
+				if h.holder[i].column.IsPrimaryKey() ||
+					h.holder[i].column.IsUnique() {
+					return true
+				}
+				if h.holder[i].column.IsMulUnique() {
+					mul = append(mul, i)
+				}
+			}
+		}
+	}
+	// 联合唯一
+	if len(mul) > 0 {
+		// t表的所有联合唯一列
+		mulColumn, _ := t.MulUniqueColumns()
+		// 如果不相等，肯定不包含了
+		if len(mul) == len(mulColumn) {
+			for len(mul) > 0 {
+				// mul的第一项是否在mulColumn中
+				ok := false
+				for i, mc := range mulColumn {
+					if mc == h.holder[mul[0]].column {
+						mulColumn = append(mulColumn[:i], mulColumn[i+1:]...)
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					break
+				}
+				// 在，去掉第一项，继续
+				mul = mul[1:]
+				// 完全匹配
+				if len(mulColumn) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.Func {
@@ -1041,6 +1052,7 @@ func (c *code) funcInsert(q *InsertStmt, sql string, tx bool) tpl.Func {
 	tp := new(tpl.Exec)
 	tp.Tx = tx
 	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
 	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
 	tp.Arg = h.CheckArgs(h.ToArgs())
 	// 函数名
@@ -1068,6 +1080,7 @@ func (c *code) funcDelete(q *DeleteStmt, sql string, tx bool) tpl.Func {
 	tp := new(tpl.Exec)
 	tp.Tx = tx
 	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
 	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
 	tp.Arg = h.CheckArgs(h.ToArgs())
 	// 函数名
@@ -1097,6 +1110,7 @@ func (c *code) funcUpdate(q *UpdateStmt, sql string, tx bool) tpl.Func {
 	tp := new(tpl.Exec)
 	tp.Tx = tx
 	tp.Sql = sql
+	tp.Stmt = c.tplInit.AddStmt(sql)
 	tp.Struct = tpl.SnakeCaseToPascalCase(t.Name())
 	var args1 tpl.Args = h1.ToArgs() // 用于函数名
 	var args2 tpl.Args = h2.ToArgs() // 用于函数名
@@ -1175,10 +1189,6 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	if q.Join != "" {
 		h.join = c.funcGetTable(q.Join)
 	}
-	// distinct
-	if q.Distinct == "?" {
-		h.AddColumn(q.Table+"_distinct", "", sub)
-	}
 	// columns
 	for _, col := range q.Column {
 		c.parseHolders(h, col.Expression, sub)
@@ -1190,7 +1200,7 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	// group by
 	for _, s := range q.GroupBy {
 		if s == "?" {
-			h.AddColumn(q.Table+"_group", "", sub)
+			h.group = append(h.group, &holder{table: h.table, sub: sub})
 		}
 	}
 	// having
@@ -1202,7 +1212,7 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	// order by
 	for _, s := range q.OrderBy {
 		if s == "?" {
-			h.AddColumn(q.Table+"_order", "", sub)
+			h.order = append(h.order, &holder{table: h.table, sub: sub})
 		}
 	}
 	// asc/desc

@@ -141,6 +141,9 @@ var (
 		"desc":                     1,
 		"asc":                      1,
 	}
+
+	noTokenFoundErr = errors.New("parse token error 'no token found'")
+	parseSqlEOF     = errors.New("parse sql error 'eof'")
 )
 
 // 符号c是否运算符号
@@ -227,18 +230,23 @@ func AddFunction(name, _return string) {
 	functions[name] = _return
 }
 
+func recoverError() error {
+	re := recover()
+	if re != nil {
+		e, ok := re.(error)
+		if ok {
+			return e
+		} else {
+			return fmt.Errorf("%v", e)
+		}
+	}
+	return nil
+}
+
 // 解析sql
 func ParseSQL(sql string) (v interface{}, err error) {
 	defer func() {
-		re := recover()
-		if re != nil {
-			e, ok := re.(error)
-			if ok {
-				err = e
-			} else {
-				err = fmt.Errorf("%v", e)
-			}
-		}
+		err = recoverError()
 	}()
 	v = parseSQL(removeParentheses(sql))
 	return
@@ -250,83 +258,80 @@ func parseSQL(sql string) (v interface{}) {
 	// 解析读取所有token
 	p.readTokens(sql)
 	// 解析
-	switch strings.ToLower(p.token[0]) {
-	case "select":
+	if p.Match("select") {
 		v = p.Select()
-	case "insert into":
+	} else if p.Match("insert into") {
 		v = p.Insert()
-	case "update":
+	} else if p.Match("update") {
 		v = p.Update()
-	case "delete from":
+	} else if p.Match("delete from") {
 		v = p.Delete()
-	default:
+	} else {
 		v = p.ExpressionStmt()
 	}
 	return
 }
 
 type parser struct {
-	token  []string // 未解析的token
-	parsed []string // 已解析的token
+	token []string // token
+	index int      // 正在解析的索引
 }
 
 // 读取所有的token
 func (p *parser) readTokens(sql string) {
 	var token string
+	// 检查连续的关键字
+	var checkKeywordToken = func(must bool, ss ...string) {
+		var token string
+		sql, token = p.readToken(sql)
+		if matchAny(token, ss...) {
+			p.token[len(p.token)-1] += " " + token
+		} else {
+			if must {
+				panic(p.readTokenError())
+			}
+			p.token = append(p.token, token)
+		}
+	}
 	for sql != "" {
 		sql, token = p.readToken(sql)
 		p.token = append(p.token, token)
 		switch strings.ToLower(token) {
 		case "insert":
-			sql = p.checkMultiKeywordToken(sql, true, "into")
+			checkKeywordToken(true, "into")
 		case "delete":
-			sql = p.checkMultiKeywordToken(sql, true, "from")
+			checkKeywordToken(true, "from")
 		case "is":
-			sql = p.checkMultiKeywordToken(sql, false, "not")
+			checkKeywordToken(false, "not")
 		case "not":
-			sql = p.checkMultiKeywordToken(sql, false, "like", "between", "in", "exists")
+			checkKeywordToken(false, "like", "between", "in", "exists")
 		case "union":
-			sql = p.checkMultiKeywordToken(sql, false, "all")
+			checkKeywordToken(false, "all")
 		case "group", "order":
-			sql = p.checkMultiKeywordToken(sql, true, "by")
+			checkKeywordToken(true, "by")
 		case "inner":
-			sql = p.checkMultiKeywordToken(sql, true, "join")
+			checkKeywordToken(true, "join")
 		case "left", "right":
-			sql = p.checkMultiKeywordToken(sql, false, "outer")
-			sql = p.checkMultiKeywordToken(sql, true, "join")
+			checkKeywordToken(false, "outer")
+			checkKeywordToken(true, "join")
 		case "natural":
 			sql, token = p.readToken(sql)
 			if matchAny(token, "left", "right") {
 				p.token[len(p.token)-1] += " " + token
-				sql = p.checkMultiKeywordToken(sql, false, "outer")
+				checkKeywordToken(false, "outer")
 			}
-			sql = p.checkMultiKeywordToken(sql, true, "join")
+			checkKeywordToken(true, "join")
 		case "outer":
-			panic(p.tokenError())
+			panic(p.readTokenError())
 		}
 	}
-}
-
-// 检查多关键字
-func (p *parser) checkMultiKeywordToken(sql string, must bool, ss ...string) string {
-	var token string
-	sql, token = p.readToken(sql)
-	if matchAny(token, ss...) {
-		p.token[len(p.token)-1] += " " + token
-	} else {
-		if must {
-			panic(p.tokenError())
-		}
-		p.token = append(p.token, token)
-	}
-	return sql
 }
 
 // 读取token并返回
 func (p *parser) readToken(sql string) (string, string) {
 	sql = strings.TrimSpace(sql)
 	if sql == "" {
-		panic(p.tokenError())
+		panic(p.readTokenError())
 	}
 	// 运算符
 	if isOperatorsSymbol(sql[0]) {
@@ -343,10 +348,34 @@ func (p *parser) readToken(sql string) (string, string) {
 	switch sql[0] {
 	case '\'', '"', '`':
 		// 字符串
-		return p.readStringToken(sql)
+		c := sql[0]
+		n := 1
+		for n < len(sql) {
+			if sql[n] == c && sql[n-1] != '\\' {
+				n++
+				return sql[n:], sql[:n]
+			}
+			n++
+		}
+		panic(p.readTokenError())
 	case '(':
 		// 表达式
-		return p.readParenthesesToken(sql)
+		n := 0
+		m := 1
+		for n < len(sql) {
+			n++
+			if sql[n] == '(' {
+				m++
+			}
+			if sql[n] == ')' {
+				m--
+				if m == 0 {
+					n++
+					return sql[n:], sql[:n]
+				}
+			}
+		}
+		panic(p.readTokenError())
 	default:
 		// 标识符
 		n := 1
@@ -362,74 +391,59 @@ func (p *parser) readToken(sql string) (string, string) {
 	}
 }
 
-// 解析字符串类型的token
-func (p *parser) readStringToken(sql string) (string, string) {
-	c := sql[0]
-	n := 1
-	for n < len(sql) {
-		if sql[n] == c && sql[n-1] != '\\' {
-			n++
-			return sql[n:], sql[:n]
-		}
-		n++
-	}
-	panic(p.tokenError())
-}
-
-// 解析圆括号类型的token
-func (p *parser) readParenthesesToken(sql string) (string, string) {
-	n := 0
-	m := 1
-	for n < len(sql) {
-		n++
-		if sql[n] == '(' {
-			m++
-		}
-		if sql[n] == ')' {
-			m--
-			if m == 0 {
-				n++
-				return sql[n:], sql[:n]
-			}
-		}
-	}
-	panic(p.tokenError())
-}
-
 // 当前解析token的错误
-func (p *parser) tokenError() error {
-	var str strings.Builder
-	for _, t := range p.token {
-		str.WriteString(t)
-		str.WriteByte(' ')
+func (p *parser) readTokenError() error {
+	if len(p.token) == 0 {
+		return noTokenFoundErr
 	}
-	return fmt.Errorf("parse error at '%s'", str.String())
+	return fmt.Errorf("parse token error at '%s'", p.token[len(p.token)-1])
 }
 
-// 当前解析stmt的错误
-func (p *parser) stmtError() error {
-	var str strings.Builder
-	for _, t := range p.parsed {
-		str.WriteString(t)
-		str.WriteByte(' ')
-	}
-	if len(p.token) > 0 {
-		return fmt.Errorf("parse '%s' error at '%s'", str.String(), p.token[0])
-	}
-	return fmt.Errorf("parse '%s' error 'eof'", str.String())
+// 当前解析的错误
+func (p *parser) parseSqlError() error {
+	return fmt.Errorf("parse sql error '%s'", p.token[p.index])
 }
 
-func (p *parser) record() string {
-	t := p.token[0]
-	p.parsed = append(p.parsed, t)
-	p.token = p.token[1:]
+func (p *parser) Token() string {
+	if p.index == len(p.token) {
+		panic(parseSqlEOF)
+	}
+	return p.token[p.index]
+}
+
+func (p *parser) NextToken() string {
+	if p.index >= len(p.token)-1 {
+		return ""
+	}
+	return p.token[p.index+1]
+}
+
+func (p *parser) Next() {
+	p.index++
+}
+
+func (p *parser) IsEmpty() bool {
+	return p.index >= len(p.token)
+}
+
+func (p *parser) Match(ss ...string) bool {
+	if p.IsEmpty() {
+		return false
+	}
+	if matchAny(p.Token(), ss...) {
+		p.Next()
+		return true
+	}
+	return false
+}
+
+func (p *parser) MustMatch(ss ...string) string {
+	if !matchAny(p.Token(), ss...) {
+		panic(p.parseSqlError())
+	}
+	t := p.Token()
+	p.Next()
 	return t
-}
-
-func (p *parser) mustHasToken() {
-	if len(p.token) < 1 {
-		panic(p.stmtError())
-	}
 }
 
 type ExpressionStmt struct {
@@ -452,8 +466,8 @@ type FuncExpressionStmt struct {
 func (p *parser) ExpressionStmt() interface{} {
 	// 左值
 	left := p.expressionValue()
-	// 只有单一值或者下一个不是运算符
-	if len(p.token) < 1 || !isOperators(p.token[0]) {
+	// 只有单一值或者不是运算符，返回
+	if p.IsEmpty() || !isOperators(p.Token()) {
 		return left
 	}
 	// 读取运算符和右值
@@ -480,14 +494,15 @@ func (p *parser) ExpressionStmt() interface{} {
 
 // 解析表达式的单一个值
 func (p *parser) expressionValue() interface{} {
-	t := p.record()
+	t := p.Token()
 	// (xxx)
 	if isParentheses(t) {
+		p.Next()
 		// 解析子表达式
 		pp := new(parser)
 		pp.readTokens(removeParentheses(t))
 		// 是否select子查询
-		if matchAny(pp.token[0], "select") {
+		if pp.Match("select") {
 			return pp.Select()
 		}
 		// 解析，如果不是整个expression，那就是(x,x,x)
@@ -496,37 +511,42 @@ func (p *parser) expressionValue() interface{} {
 			return v
 		}
 		vv := []interface{}{v}
-		for len(pp.token) > 0 {
-			if pp.token[0] != "," {
-				panic(pp.stmtError())
-			}
-			pp.record()
+		for !pp.IsEmpty() {
+			pp.MustMatch(",")
 			vv = append(vv, pp.ExpressionStmt())
 		}
 		return vv
 	}
 	// exists(xxx)
-	if matchAny(t, "exists", "not exists") {
+	if p.Match("exists", "not exists") {
 		expr := new(BoolExpressionStmt)
 		expr.Operator = t
 		expr.Value = p.mustParenthesesExpressionValue()
 		return expr
 	}
 	// func()
-	if isFunction(t) && isParentheses(p.token[0]) {
+	if isFunction(t) && isParentheses(p.NextToken()) {
+		p.Next()
 		expr := new(FuncExpressionStmt)
 		expr.Name = t
-		expr.Value = p.mustParenthesesExpressionValue()
+		pp := new(parser)
+		pp.readTokens(removeParentheses(p.Token()))
+		if len(pp.token) == 1 && pp.Token() == "*" {
+			expr.Value = "*"
+		} else {
+			expr.Value = pp.ExpressionStmt()
+		}
+		p.Next()
 		return expr
 	}
 	// 单一值
-	return t
+	return p.mustIdentifier()
 }
 
 // 解析表达式的运算符和右值
 func (p *parser) expressionOperatorsAndRight() *ExpressionStmt {
-	t := p.record()
-	p.mustHasToken()
+	t := p.Token()
+	p.Next()
 	// 新的表达式
 	expr := &ExpressionStmt{Operator: t}
 	switch strings.ToLower(expr.Operator) {
@@ -534,20 +554,15 @@ func (p *parser) expressionOperatorsAndRight() *ExpressionStmt {
 		// ? and ?
 		and := new(ExpressionStmt)
 		pp := new(parser)
-		// 左值
-		for _, t := range p.token {
-			if strings.ToLower(t) == "and" {
-				break
-			}
-			pp.token = append(pp.token, t)
-			p.record()
+		// and 左值
+		i1 := p.index
+		for !p.Match("and") {
 		}
-		if len(p.token) < 2 {
-			panic(p.stmtError())
-		}
+		i2 := p.index - 1
+		pp.token = p.token[i1:i2]
 		and.Left = pp.ExpressionStmt()
 		// and
-		and.Operator = p.record()
+		and.Operator = p.token[i2]
 		// 右值
 		and.Right = p.ExpressionStmt()
 		expr.Right = and
@@ -555,10 +570,8 @@ func (p *parser) expressionOperatorsAndRight() *ExpressionStmt {
 		// 右值必须是(xxx)
 		expr.Right = p.mustParenthesesExpressionValue()
 	case "is", "is not":
-		if !matchAny(p.token[0], "null", "?") {
-			panic(p.stmtError())
-		}
-		expr.Right = p.record()
+		expr.Right = p.MustMatch("null", "?")
+		p.Next()
 	default:
 		expr.Right = p.expressionValue()
 	}
@@ -567,59 +580,46 @@ func (p *parser) expressionOperatorsAndRight() *ExpressionStmt {
 
 // 当前的token必须是(x,x,x)，并解析
 func (p *parser) mustParenthesesExpressionValue() interface{} {
-	if len(p.token) < 1 || !isParentheses(p.token[0]) {
-		panic(p.stmtError())
+	if !isParentheses(p.Token()) {
+		panic(p.parseSqlError())
 	}
 	return p.expressionValue()
 }
 
 // 当前的token必须是普通标识符
 func (p *parser) mustIdentifier() string {
-	if len(p.token) < 1 || !isIdentifier(p.token[0]) {
-		panic(p.stmtError())
+	t := p.Token()
+	if !isIdentifier(t) {
+		panic(p.parseSqlError())
 	}
-	return p.record()
+	p.Next()
+	return t
 }
 
 // 当前的token必须是(x,x,x)
 func (p *parser) mustParentheses() string {
-	if len(p.token) < 1 || !isParentheses(p.token[0]) {
-		panic(p.stmtError())
+	t := p.Token()
+	if !isParentheses(t) {
+		panic(p.parseSqlError())
 	}
-	return p.record()
-}
-
-// 当前的token必须匹配
-func (p *parser) mustMatch(ss ...string) string {
-	if len(p.token) < 1 || !matchAny(p.token[0], ss...) {
-		panic(p.stmtError())
-	}
-	return p.record()
-}
-
-// 当前的token如果匹配
-func (p *parser) ifMatch(ss ...string) bool {
-	if len(p.token) > 0 && matchAny(p.token[0], ss...) {
-		p.record()
-		return true
-	}
-	return false
+	p.Next()
+	return t
 }
 
 type DeleteStmt struct {
 	Table string
 	Where interface{}
+	Token []string
 }
 
 // delete from table [where condition]
 func (p *parser) Delete() *DeleteStmt {
-	p.record()
-	//
 	query := new(DeleteStmt)
+	query.Token = p.token
 	// table
 	query.Table = p.mustIdentifier()
 	// [where condition]
-	if p.ifMatch("where") {
+	if p.Match("where") {
 		query.Where = p.ExpressionStmt()
 	}
 	return query
@@ -629,37 +629,33 @@ type UpdateStmt struct {
 	Table  string
 	Column []*ExpressionStmt
 	Where  interface{}
+	Token  []string
 }
 
 // update table set column=expression[, ...] [where condition]
 func (p *parser) Update() *UpdateStmt {
-	p.record()
-	//
 	query := new(UpdateStmt)
+	query.Token = p.token
 	// table
 	query.Table = p.mustIdentifier()
 	// set
-	p.mustMatch("set")
+	p.MustMatch("set")
 	// column=expression[, ...]
-	if len(p.token) < 1 {
-		panic(p.stmtError())
-	}
 	for {
 		expr := new(ExpressionStmt)
 		// column必须是普通标识符
 		expr.Left = p.mustIdentifier()
 		// 运算符必须是'='
-		expr.Operator = p.mustMatch("=")
+		expr.Operator = p.MustMatch("=")
 		// 右值是表达式
 		expr.Right = p.ExpressionStmt()
 		query.Column = append(query.Column, expr)
-		if len(p.token) < 1 || p.token[0] != "," {
+		if p.IsEmpty() || !p.Match(",") {
 			break
 		}
-		p.record()
 	}
 	// [where condition]
-	if p.ifMatch("where") {
+	if p.Match("where") {
 		query.Where = p.ExpressionStmt()
 	}
 	return query
@@ -669,61 +665,50 @@ type InsertStmt struct {
 	Table  string        // 表名
 	Column []string      // 列名
 	Values []interface{} // 值
+	Token  []string
 }
 
 // insert into table [(column[, ...])] {values(expression[, ...])}
 func (p *parser) Insert() *InsertStmt {
-	p.record()
-	//
 	query := new(InsertStmt)
+	query.Token = p.token
 	// table
 	query.Table = p.mustIdentifier()
 	// [(column[, ...])]
-	if isParentheses(p.token[0]) {
-		p.insertColumn(query)
+	if isParentheses(p.Token()) {
+		pp := new(parser)
+		pp.readTokens(removeParentheses(p.Token()))
+		for {
+			// column必须是标识符
+			query.Column = append(query.Column, pp.mustIdentifier())
+			if pp.IsEmpty() {
+				break
+			}
+			// 如果还有column，必须是','隔开
+			pp.MustMatch(",")
+		}
+		p.Next()
 	}
 	// values(expression[, ...])
-	p.mustMatch("values")
-	p.insertValues(query)
+	p.MustMatch("values")
+	pp := new(parser)
+	pp.readTokens(removeParentheses(p.mustParentheses()))
+	for {
+		v := pp.ExpressionStmt()
+		query.Values = append(query.Values, v)
+		if pp.IsEmpty() {
+			break
+		}
+		pp.MustMatch(",")
+	}
+	// column和values的个数必须相等
+	if len(query.Column) > 0 && len(query.Column) != len(query.Values) {
+		panic(fmt.Errorf("column count %d no equal value count %d", len(query.Column), len(query.Values)))
+	}
 	return query
 }
 
-// [(column[, ...])]
-func (p *parser) insertColumn(query *InsertStmt) {
-	pp := new(parser)
-	pp.readTokens(removeParentheses(p.record()))
-	for {
-		// column必须是标识符
-		query.Column = append(query.Column, pp.mustIdentifier())
-		if len(pp.token) < 1 {
-			return
-		}
-		// 如果还有column，必须是','隔开
-		pp.mustMatch(",")
-	}
-}
-
-func (p *parser) insertValues(query *InsertStmt) {
-	pp := new(parser)
-	pp.readTokens(removeParentheses(p.mustParentheses()))
-	var vv []interface{}
-	for {
-		v := pp.ExpressionStmt()
-		vv = append(vv, v)
-		if len(pp.token) < 1 {
-			break
-		}
-		pp.mustMatch(",")
-	}
-	// column和values的个数必须相等
-	if len(query.Column) > 0 && len(query.Column) != len(vv) {
-		panic(fmt.Errorf("column count %d no equal value count %d", len(query.Column), len(vv)))
-	}
-	query.Values = vv
-}
-
 type SelectStmt struct {
-	Distinct   string
 	Column     []*AliasStmt
 	Table      string
 	TableAlias string
@@ -737,6 +722,7 @@ type SelectStmt struct {
 	OrderBy    []string
 	Order      string
 	Limit      []string
+	Token      []string
 }
 
 type AliasStmt struct {
@@ -754,31 +740,32 @@ type AliasStmt struct {
 // [limit{start}[total]]
 func (p *parser) Select() *SelectStmt {
 	query := new(SelectStmt)
+	query.Token = p.token
 	// select [all|distinct] expression[[as]alias][, ...]
 	// from {table[[as]alias]|select [as]alias}
 	p.selectBase(query)
 	// [order by {column|int}[asc|desc]
-	if p.ifMatch("order by") {
+	if p.Match("order by") {
 		for {
 			// 必须是普通标识符
 			query.OrderBy = append(query.OrderBy, p.mustIdentifier())
 			// 没有token，或者不是','
-			if len(p.token) < 1 || p.token[0] != "," {
+			if p.IsEmpty() || !p.Match(",") {
 				break
 			}
 		}
 		// 是否有排序
-		if p.ifMatch("asc", "desc", "?") {
-			query.Order = p.record()
+		t := p.Token()
+		if p.Match("asc", "desc", "?") {
+			query.Order = t
 		}
 	}
 	// [limit{start}[total]]
-	if p.ifMatch("limit") {
+	if p.Match("limit") {
 		// 必须有至少一个，必须是普通标识符
 		query.Limit = append(query.Limit, p.mustIdentifier())
 		// 如果是','，那么还有一个
-		if len(p.token) > 0 && p.token[0] == "," {
-			p.record()
+		if p.Match(",") {
 			query.Limit = append(query.Limit, p.mustIdentifier())
 		}
 	}
@@ -786,34 +773,31 @@ func (p *parser) Select() *SelectStmt {
 }
 
 func (p *parser) selectBase(query *SelectStmt) {
-	p.record()
 	// [all|distinct]
-	if matchAny(p.token[0], "all", "distinct", "?") {
-		query.Distinct = p.record()
-	}
+	p.Match("all", "distinct")
 	// expression[[as]alias][, ...] from
 	p.selectColumn(query)
 	// table[[as]alias]
 	query.Table = p.mustIdentifier()
 	query.TableAlias = p.selectAlias()
-	if len(p.token) < 1 {
+	if p.IsEmpty() {
 		return
 	}
 	// [{{left|right}[outer]|natural|[full]outer}] join table alias {on condition}]
-	if strings.Contains(strings.ToLower(p.token[0]), "join") {
-		p.record()
+	if strings.Contains(strings.ToLower(p.Token()), "join") {
+		p.Next()
 		query.Join = p.mustIdentifier()
 		query.JoinAlias = p.selectAlias()
-		if p.ifMatch("on") {
+		if p.Match("on") {
 			query.On = p.ExpressionStmt()
 		}
 	}
 	// [where {condition}]
-	if p.ifMatch("where") {
+	if p.Match("where") {
 		query.Where = p.ExpressionStmt()
 	}
 	// [group by column [, ...]]
-	if p.ifMatch("group by") {
+	if p.Match("group by") {
 		for {
 			query.GroupBy = append(query.GroupBy, p.mustIdentifier())
 			if len(p.token) < 1 || p.token[0] != "," {
@@ -822,22 +806,24 @@ func (p *parser) selectBase(query *SelectStmt) {
 		}
 	}
 	// [having condition]
-	if p.ifMatch("having") {
+	if p.Match("having") {
 		query.Having = p.ExpressionStmt()
 	}
 	// [{union[all]}select]
-	if p.ifMatch("union", "union all") {
+	if p.Match("union", "union all") {
 		query.Union = new(SelectStmt)
 		p.selectBase(query.Union)
 	}
 }
 
 func (p *parser) selectAlias() string {
-	if p.ifMatch("as") {
+	if p.Match("as") {
 		return p.mustIdentifier()
 	}
-	if len(p.token) > 0 && isIdentifier(p.token[0]) {
-		return p.record()
+	if !p.IsEmpty() && isIdentifier(p.Token()) {
+		t := p.Token()
+		p.Next()
+		return t
 	}
 	return ""
 }
@@ -849,17 +835,16 @@ var (
 func (p *parser) selectColumn(query *SelectStmt) {
 	// 不能有相同的column，否则对应不了struct
 	sameColumn := make(map[string]int)
-	sameAlias := make(map[string]int)
-	for len(p.token) > 0 {
+	for !p.IsEmpty() {
 		column := new(AliasStmt)
-		if p.token[0] == "*" {
+		t := p.Token()
+		if t == "*" {
 			if len(query.Column) > 0 {
 				panic(errColumnType)
 			}
-			column.Expression = p.record()
-			if !p.ifMatch("from") {
-				panic(p.stmtError())
-			}
+			column.Expression = t
+			p.Next()
+			p.MustMatch("from")
 			query.Column = append(query.Column, column)
 			return
 		}
@@ -890,18 +875,11 @@ func (p *parser) selectColumn(query *SelectStmt) {
 			panic(errColumnType)
 		}
 		column.Alias = p.selectAlias()
-		if column.Alias != "" {
-			_, o := sameAlias[column.Alias]
-			if o {
-				panic(fmt.Errorf("unsupported same alias '%s'", column.Alias))
-			}
-			sameAlias[column.Alias] = 1
-		}
 		query.Column = append(query.Column, column)
 		// 如果是from，退出
-		if p.ifMatch("from") {
+		if p.Match("from") {
 			return
 		}
-		p.mustMatch(",")
+		p.MustMatch(",")
 	}
 }
