@@ -24,5 +24,33 @@
   ],
   "?": "",
   "sql": [
+  ],
+  "?": "用于生成list的结构代码",
+  "model": [
+    {
+      "name": "UserJoinRole",
+      "filed": [
+        [
+          "RoleId",
+          "int",
+          ""
+        ],
+        [
+          "RoleName",
+          "",
+          "`json:\"roleName\"`"
+        ],
+        [
+          "AppId",
+          "int",
+          ""
+        ],
+        [
+          "AppName",
+          "",
+          ""
+        ]
+      ]
+    }
   ]
 }

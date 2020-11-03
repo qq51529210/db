@@ -192,6 +192,8 @@ func (h *holders) CheckArgs(args []*tpl.Arg) []*tpl.Arg {
 }
 
 type Code interface {
+	// 生成自定义结构的模板
+	ModelTPL(name string, fields [][3]string) (tpl.Struct, error)
 	// 获取所有的struct模板
 	StructTPLs() []tpl.TPL
 	// 获取名称为name的struct模板
@@ -222,21 +224,39 @@ func NewCode(dbUrl, pkg string) (Code, error) {
 	// struct模板
 	c.tplStruct = make(map[string]tpl.Struct)
 	for _, t := range schema.Tables() {
-		tp, err := c.StructTPL(t.Name())
+		_, err := c.StructTPL(t.Name())
 		if err != nil {
 			return nil, err
 		}
-		c.tplStruct[tp.Name()] = tp
 	}
+	c.tplModel = make(map[string]tpl.Struct)
 	return c, nil
 }
 
 type code struct {
 	pkg       string
 	schema    *db2go.Schema
+	tplModel  map[string]tpl.Struct
 	tplStruct map[string]tpl.Struct
 	tplInit   tpl.Init
 	stmt      map[string]int
+}
+
+func (c *code) ModelTPL(name string, fields [][3]string) (tpl.Struct, error) {
+	// 如果存在，就返回
+	if tp, ok := c.tplModel[name]; ok {
+		return tp, nil
+	}
+	tp := tpl.NewStruct(c.pkg, "", name)
+	for _, f := range fields {
+		if f[2] == "" {
+			tp.AddField(f[0], f[1], fmt.Sprintf("`json:\"%s\"`", tpl.PascalCaseToCamelCase(f[0])))
+		} else {
+			tp.AddField(f[0], f[1], f[2])
+		}
+	}
+	c.tplModel[tp.Name()] = tp
+	return tp, nil
 }
 
 func (c *code) StructTPLs() []tpl.TPL {
@@ -263,8 +283,9 @@ func (c *code) StructTPL(table string) (tpl.Struct, error) {
 	for _, col := range t.Columns() {
 		tp.AddField(tpl.SnakeCaseToPascalCase(col.Name()),
 			col.GoType(),
-			fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(col.Name())))
+			fmt.Sprintf("`json:\"%s\"`", tpl.SnakeCaseToCamelCase(col.Name())))
 	}
+	c.tplStruct[tp.Name()] = tp
 	return tp, nil
 }
 
@@ -477,6 +498,13 @@ func (c *code) SaveFiles(dir string, clean bool) error {
 	if err != nil {
 		return err
 	}
+	// 输出model模板
+	for k, v := range c.tplModel {
+		err = v.Save(filepath.Join(dir, tpl.PascalCaseToSnakeCase(k)+".go"))
+		if err != nil {
+			return err
+		}
+	}
 	// 输出struct模板
 	for k, v := range c.tplStruct {
 		err = v.Save(filepath.Join(dir, tpl.PascalCaseToSnakeCase(k)+".go"))
@@ -683,8 +711,8 @@ func (c *code) funcSelectCheckJoinTable(q *SelectStmt) (t, j *db2go.Table, struc
 		_, ok := c.tplStruct[structName]
 		if !ok {
 			tp := tpl.NewStruct(c.pkg, "", structName)
-			tp.AddField(struct1Name, "", fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(struct1Name)))
-			tp.AddField(struct2Name, "", fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(struct2Name)))
+			tp.AddField(struct1Name, "", fmt.Sprintf("`json:\"%s\"`", tpl.SnakeCaseToCamelCase(struct1Name)))
+			tp.AddField(struct2Name, "", fmt.Sprintf("`json:\"%s\"`", tpl.SnakeCaseToCamelCase(struct2Name)))
 			c.tplStruct[structName] = tp
 		}
 	}

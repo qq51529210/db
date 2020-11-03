@@ -1,7 +1,6 @@
 package tpl
 
 import (
-	"strings"
 	"text/template"
 )
 
@@ -16,8 +15,8 @@ import (
 )
 
 type {{.Name}} struct {
-	{{- range $i,$v := .Field}}
-	{{$.TPLField $v}}
+	{{- range .Field}}
+	{{index . 0}} {{index . 1}} {{index . 2}}
 	{{- end}}
 }
 
@@ -46,13 +45,12 @@ func Read{{.Name}}List(query string, args... interface{}) ([]*{{.Name}}, error) 
 }
 
 {{if .Table -}}
-func {{.Name}}Page(order, begin, total string, desc bool) ([]*{{.Name}}, error) {
+func {{.Name}}Page(order, sort, begin, total string) ([]*{{.Name}}, error) {
 	var str strings.Builder
 	str.WriteString("select * from {{.Table}} order by ")
 	str.WriteString(order)
-	if desc {
-		str.WriteString(" desc")
-	}
+	str.WriteString(" ")
+	str.WriteString(sort)
 	str.WriteString(" limit ")
 	str.WriteString(begin)
 	str.WriteString(", ")
@@ -114,20 +112,6 @@ func (s *_struct) Save(file string) error {
 
 func (s *_struct) TPL() *template.Template {
 	return tplStruct
-}
-
-func (s *_struct) TPLField(field [3]string) string {
-	var str strings.Builder
-	str.WriteString(field[0])
-	str.WriteByte(' ')
-	str.WriteString(field[1])
-	if field[2] != "" {
-		str.WriteByte(' ')
-		str.WriteByte('`')
-		str.WriteString(field[2])
-		str.WriteByte('`')
-	}
-	return str.String()
 }
 
 func (s *_struct) Fields() []string {

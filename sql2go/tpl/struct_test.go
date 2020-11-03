@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	testStruct = NewStruct("test", "Test")
+	testStruct = NewStruct("test", "test", "Test")
 )
 
 func Test_SelectFunc(t *testing.T) {
