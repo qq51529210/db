@@ -683,8 +683,8 @@ func (c *code) funcSelectCheckJoinTable(q *SelectStmt) (t, j *db2go.Table, struc
 		_, ok := c.tplStruct[structName]
 		if !ok {
 			tp := tpl.NewStruct(c.pkg, "", structName)
-			tp.AddField(struct1Name, "", "")
-			tp.AddField(struct2Name, "", "")
+			tp.AddField(struct1Name, "", fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(struct1Name)))
+			tp.AddField(struct2Name, "", fmt.Sprintf("json:\"%s\"", tpl.SnakeCaseToCamelCase(struct2Name)))
 			c.tplStruct[structName] = tp
 		}
 	}

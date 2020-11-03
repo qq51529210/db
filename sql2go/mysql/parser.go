@@ -473,7 +473,7 @@ func (p *parser) ExpressionStmt() interface{} {
 	// 读取运算符和右值
 	expr := p.expressionOperatorsAndRight()
 	expr.Left = left
-	for len(p.token) > 0 && isOperators(p.token[0]) {
+	for !p.IsEmpty() && isOperators(p.Token()) {
 		// 新的运算符和右值
 		newExpr := p.expressionOperatorsAndRight()
 		// 调整表达式的语法树

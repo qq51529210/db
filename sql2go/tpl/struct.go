@@ -10,7 +10,6 @@ var (
 
 import (
 	"database/sql"
-	"strings"
 	{{- range $k,$v := .ImportPkg}}	
 	"{{$k}}"
 	{{- end}}
@@ -56,6 +55,7 @@ func {{.Name}}Page(order, begin, total string, desc bool) ([]*{{.Name}}, error) 
 	}
 	str.WriteString(" limit ")
 	str.WriteString(begin)
+	str.WriteString(", ")
 	str.WriteString(total)
 	return Read{{.Name}}List(str.String())
 }
@@ -81,6 +81,9 @@ func NewStruct(pkg, table, name string) Struct {
 	s.Table = table
 	s.name = name
 	s.ImportPkg = make(map[string]int)
+	if table != "" {
+		s.ImportPkg["strings"] = 1
+	}
 	return s
 }
 
