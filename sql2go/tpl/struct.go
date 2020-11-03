@@ -10,6 +10,7 @@ var (
 
 import (
 	"database/sql"
+	"strings"
 	{{- range $k,$v := .ImportPkg}}	
 	"{{$k}}"
 	{{- end}}
@@ -45,6 +46,21 @@ func Read{{.Name}}List(query string, args... interface{}) ([]*{{.Name}}, error) 
 	return models, nil
 }
 
+{{if .Table -}}
+func {{.Name}}Page(order, begin, total string, desc bool) ([]*{{.Name}}, error) {
+	var str strings.Builder
+	str.WriteString("select * from {{.Table}} order by ")
+	str.WriteString(order)
+	if desc {
+		str.WriteString(" desc")
+	}
+	str.WriteString(" limit ")
+	str.WriteString(begin)
+	str.WriteString(total)
+	return Read{{.Name}}List(str.String())
+}
+{{end -}}
+
 {{range .FuncTPL -}}
 {{.}}
 {{end -}}
@@ -59,9 +75,10 @@ type Struct interface {
 	Save(file string) error
 }
 
-func NewStruct(pkg, name string) Struct {
+func NewStruct(pkg, table, name string) Struct {
 	s := new(_struct)
 	s.Pkg = pkg
+	s.Table = table
 	s.name = name
 	s.ImportPkg = make(map[string]int)
 	return s
@@ -71,6 +88,7 @@ type _struct struct {
 	Pkg       string
 	ImportPkg map[string]int
 	name      string
+	Table     string
 	Field     [][3]string
 	FuncTPL   []Func
 }
@@ -80,10 +98,6 @@ func (s *_struct) Name() string {
 }
 
 func (s *_struct) AddFunc(f Func) {
-	switch f.(type) {
-	case *SelectPage:
-		s.ImportPkg["strings"] = 1
-	}
 	s.FuncTPL = append(s.FuncTPL, f)
 }
 
