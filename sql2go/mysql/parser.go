@@ -720,7 +720,7 @@ type SelectStmt struct {
 	Having     interface{}
 	Union      *SelectStmt
 	OrderBy    []string
-	Order      string
+	Sort       string
 	Limit      []string
 	Token      []string
 }
@@ -757,7 +757,7 @@ func (p *parser) Select() *SelectStmt {
 		// 是否有排序
 		t := p.Token()
 		if p.Match("asc", "desc", "?") {
-			query.Order = t
+			query.Sort = t
 		}
 	}
 	// [limit{start}[total]]

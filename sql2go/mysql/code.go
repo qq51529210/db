@@ -65,8 +65,9 @@ type holders struct {
 	join       *db2go.Table
 	joinAlias  string
 	holder     []*holder
-	group      []*holder
-	order      []*holder
+	group      int
+	order      int
+	sort       bool
 }
 
 func (h *holders) AddColumn(column, operator string, sub bool) {
@@ -258,7 +259,7 @@ func (c *code) StructTPL(table string) (tpl.Struct, error) {
 		return nil, unknownTable(table)
 	}
 	// 新建模板
-	tp := tpl.NewStruct(c.pkg, name)
+	tp := tpl.NewStruct(c.pkg, t.Name(), name)
 	for _, col := range t.Columns() {
 		tp.AddField(tpl.SnakeCaseToPascalCase(col.Name()),
 			col.GoType(),
@@ -302,8 +303,6 @@ func (c *code) DefaultFuncTPLs(table string) ([]tpl.Func, error) {
 		return nil, err
 	}
 	tps = append(tps, tp)
-	// StructSortList
-	tps = append(tps, c.defaultFuncPage(t))
 	//
 	pk, npk, uni, nuni, mul, nmul := c.defaultFuncPickColumns(t)
 	// select
@@ -505,26 +504,6 @@ func (c *code) defaultFuncList(table *db2go.Table) (tpl.Func, error) {
 	return c.FuncTPL(sql.String(), tpl.SnakeCaseToPascalCase(table.Name())+"List", false, nil)
 }
 
-func (c *code) defaultFuncPage(table *db2go.Table) tpl.Func {
-	structName := tpl.SnakeCaseToPascalCase(table.Name())
-	tp := new(tpl.SelectPage)
-	tp.Sql = "select * from " + table.Name() + " order by column asc/desc limit begin,total"
-	tp.Func = structName + "Page"
-	tp.Struct = structName
-	tp.Group2Order = "select * from " + table.Name() + " order by"
-	tp.Order = append(tp.Order, "order")
-	tp.Sort = true
-	tp.AfterOrder = "limit ?,?"
-	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "begin"})
-	tp.Arg = append(tp.Arg, &tpl.Arg{Name: "total"})
-	for _, col := range table.Columns() {
-		tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col.Name()))
-	}
-	// 添加到struct模板
-	c.tplStruct[structName].AddFunc(tp)
-	return tp
-}
-
 func (c *code) defaultFuncSelect(table *db2go.Table, fields, condition []*db2go.Column) (tpl.Func, error) {
 	var sql strings.Builder
 	sql.WriteString("select ")
@@ -703,7 +682,7 @@ func (c *code) funcSelectCheckJoinTable(q *SelectStmt) (t, j *db2go.Table, struc
 		structName += "Join" + struct2Name
 		_, ok := c.tplStruct[structName]
 		if !ok {
-			tp := tpl.NewStruct(c.pkg, structName)
+			tp := tpl.NewStruct(c.pkg, "", structName)
 			tp.AddField(struct1Name, "", "")
 			tp.AddField(struct2Name, "", "")
 			c.tplStruct[structName] = tp
@@ -872,13 +851,12 @@ func (c *code) funcSelectList(sql string, tx bool, t *db2go.Table, args []*tpl.A
 			a.Name = tpl.SnakeCaseToCamelCase(h.holder[i].column.Name())
 		}
 	}
-	args = h.CheckArgs(args)
 	tp := new(tpl.SelectList)
 	tp.Tx = tx
 	tp.Sql = sql
 	tp.Stmt = c.tplInit.AddStmt(sql)
 	tp.Struct = structName
-	tp.Arg = args
+	tp.Arg = h.CheckArgs(args)
 	for _, col := range columns {
 		tp.Column = append(tp.Column, tpl.SnakeCaseToPascalCase(col[1]))
 	}
@@ -1199,8 +1177,8 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	c.parseHolders(h, q.Where, sub)
 	// group by
 	for _, s := range q.GroupBy {
-		if s == "?" {
-			h.group = append(h.group, &holder{table: h.table, sub: sub})
+		if s == "?" && !sub {
+			h.group++
 		}
 	}
 	// having
@@ -1211,13 +1189,13 @@ func (c *code) parseSelectHolders(h *holders, q *SelectStmt, sub bool) {
 	}
 	// order by
 	for _, s := range q.OrderBy {
-		if s == "?" {
-			h.order = append(h.order, &holder{table: h.table, sub: sub})
+		if s == "?" && !sub {
+			h.order++
 		}
 	}
 	// asc/desc
-	if q.Order == "?" {
-		h.AddColumn(q.Table+"_sort", "", sub)
+	if q.Sort == "?" && !sub {
+		h.sort = true
 	}
 	// limit
 	for _, s := range q.Limit {
