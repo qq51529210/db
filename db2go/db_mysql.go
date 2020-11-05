@@ -172,7 +172,7 @@ func mysqlReadSchemaTableColumn(db *sql.DB, schema *Schema, table *Table) error 
 	str.WriteString("and ")
 	str.WriteString("table_name='")
 	str.WriteString(table.name)
-	str.WriteString("' ")
+	str.WriteString("' order by ordinal_position")
 	// 查询
 	rows, err := db.Query(str.String())
 	if err != nil {
