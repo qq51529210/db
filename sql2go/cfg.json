@@ -13,16 +13,23 @@
   "?": "",
   "func": [
     {
-      "?": "搜索角色资源",
-      "name": "RoleResListByNameLike",
+      "name": "UserDeleteById",
       "sql": [
-        "select * from res where id=",
-        "(select res_id from role_res where role_id={roleId:0})",
-        "and name like{name:'1'}",
-        "order by {order} {sort} limit {begin:0},{total:0}"
+        "delete from user where id={id:int64}"
+      ]
+    },
+    {
+      "name": "InsertUser",
+      "sql": [
+        "insert into user(name,password,email,mobile,state)",
+        "values({name:string},{password:string},{email:string},{mobile:string},1)"
+      ]
+    },
+    {
+      "name": "UpdateUser",
+      "sql": [
+        "update user set password={password:string} where id={id:int64}"
       ]
     }
-  ],
-  "exec": [
   ]
 }
