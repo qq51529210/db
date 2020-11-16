@@ -42,7 +42,18 @@
       "name": "UserSearchByNameLike",
       "sql": [
         "select * from user where name like {name:string}",
-        "order by {order:id} {sort:desc} limit {begin:int64}, {total:int64}"
+        "order by {order:id} limit {begin:int64}, {total:int64}"
+      ]
+    },
+    {
+      "name": "AppRoleAccessList",
+      "sql": [
+        "select id,name,access from",
+        "(select id,name from res where app_id={appId:int64}) a",
+        "left join",
+        "(select res_id,access from role_res where role_id={roleId:int64}) b",
+        "on a.id = b.res_id",
+        "order by {order:id} {sort:desc} limit {begin:int64},{total:int64}"
       ]
     }
   ]

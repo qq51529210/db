@@ -207,16 +207,26 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 				field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
 				t.Field = append(t.Field, field)
 			}
+			var segment strings.Builder
+			segment.WriteByte('"')
 			for _, s := range segments {
-				if s.param {
-					if s.column {
-						t.Segment = append(t.Segment, s.string)
-					} else {
-						t.Segment = append(t.Segment, `"?"`)
-					}
+				if s.column {
+					segment.WriteByte('"')
+					t.Segment = append(t.Segment, segment.String())
+					segment.Reset()
+					segment.WriteByte('"')
+					t.Segment = append(t.Segment, s.string)
 				} else {
-					t.Segment = append(t.Segment, fmt.Sprintf(`"%s"`, s.string))
+					if s.param {
+						segment.WriteByte('?')
+					} else {
+						segment.WriteString(s.string)
+					}
 				}
+			}
+			if segment.Len() > 0 {
+				segment.WriteByte('"')
+				t.Segment = append(t.Segment, segment.String())
 			}
 			return t, nil
 		}
