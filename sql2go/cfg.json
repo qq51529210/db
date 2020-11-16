@@ -1,16 +1,11 @@
 {
   "?": "数据库连接字符串，url.Schema指定driver，目前只有mysql",
   "dbUrl": "mysql://root:123456@tcp(192.168.1.66)/pro_rbac",
-  "?": "生成代码根目录，空则使用程序当前目录",
-  "dir": ".",
-  "?": "是否清空生成代码根目录",
-  "cleanDir": true,
-  "?": "db代码包名，目录名，空则使用数据库名称",
+  "?": "生成代码文件路径，空则使用程序当前目录+数据库名.go",
+  "file": "dao",
+  "?": "db代码包名，空则使用文件名称",
   "pkg": "dao",
-  "?": "数据库表名，生成Struct.S/I/U/D，Count，List的默认代码",
-  "default": [
-  ],
-  "?": "",
+  "?": "生成函数",
   "func": [
     {
       "name": "UserDeleteById",
@@ -19,16 +14,35 @@
       ]
     },
     {
-      "name": "InsertUser",
+      "name": "UserInsert",
       "sql": [
         "insert into user(name,password,email,mobile,state)",
         "values({name:string},{password:string},{email:string},{mobile:string},1)"
       ]
     },
     {
-      "name": "UpdateUser",
+      "name": "UserUpdate",
       "sql": [
         "update user set password={password:string} where id={id:int64}"
+      ]
+    },
+    {
+      "name": "UserCount",
+      "sql": [
+        "select count(id) from user where id>{id:int64}"
+      ]
+    },
+    {
+      "name": "UserList",
+      "sql": [
+        "select * from user where id>{id:int64}"
+      ]
+    },
+    {
+      "name": "UserSearchByNameLike",
+      "sql": [
+        "select * from user where name like {name:string}",
+        "order by {order:id} {sort:desc} limit {begin:int64}, {total:int64}"
       ]
     }
   ]
