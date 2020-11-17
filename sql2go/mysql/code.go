@@ -202,7 +202,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 	tp := new(tpl)
 	tp.Sql = str.String()
 	tp.Func = function
-	tp.Stmt = tx
+	tp.Tx = tx
 	// 无法预编译的sql
 	{
 		if page != nil && len(page) > 0 {

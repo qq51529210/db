@@ -17,12 +17,24 @@ type tpl struct {
 	Stmt string
 }
 
+func (t *tpl) StmtTPL() string {
+	if t.Tx != "" {
+		var s strings.Builder
+		s.WriteString(t.Tx)
+		s.WriteString(".Stmt(")
+		s.WriteString(t.Stmt)
+		s.WriteByte(')')
+		return s.String()
+	}
+	return t.Stmt
+}
+
 var _execTPL = template.Must(template.New("execTPL").Parse(`
 {{- if .Sql}}
 // {{.Sql}}
 {{end -}}
 func {{.Func}}({{.ParamTPL}}) (sql.Result, error) {
-	return {{.Stmt}}.Exec(
+	return {{.StmtTPL}}.Exec(
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -68,7 +80,7 @@ var _queryTPL = template.Must(template.New("queryTPL").Parse(`
 {{end -}}
 func {{.Func}}({{.ParamTPL}}) ([]{{.Type}}, error) {
 	models := make([]{{.Type}}, 0)
-	rows, err := {{.Stmt}}.Query(
+	rows, err := {{.StmtTPL}}.Query(
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -143,7 +155,7 @@ type {{.Model}} struct {
 
 // {{.Sql}}
 func {{.Func}}({{.ParamTPL}}) (sql.Result, error) {
-	return {{.Stmt}}.Exec(
+	return {{.StmtTPL}}.Exec(
 		{{- range .Field}}
 		model.{{index . 0}},
 		{{- end}}
@@ -195,7 +207,7 @@ type {{.Func}}Model struct {
 // {{.Sql}}
 func {{.Func}}({{.ParamTPL}}) ([]*{{.Func}}Model, error) {
 	models := make([]*{{.Func}}Model, 0)
-	rows, err := {{.Stmt}}.Query(
+	rows, err := {{.StmtTPL}}.Query(
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
