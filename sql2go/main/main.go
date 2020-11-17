@@ -15,10 +15,11 @@ import (
 )
 
 type cfg struct {
-	DBUrl string     `json:"dbUrl"`         // 数据库配置
-	Pkg   string     `json:"pkg,omitempy"`  // 代码包名，空则使用数据库名称
-	File  string     `json:"file,omitempy"` // 生成代码根目录，空则使用程序当前目录
-	Func  []*cfgFunc `json:"func,omitempy"` // 函数
+	DBUrl  string     `json:"dbUrl"`           // 数据库配置
+	Pkg    string     `json:"pkg,omitempy"`    // 代码包名，空则使用数据库名称
+	File   string     `json:"file,omitempy"`   // 生成代码根目录，空则使用程序当前目录
+	Func   []*cfgFunc `json:"func,omitempy"`   // 函数
+	Driver string     `json:"driver,omitempy"` // 数据库驱动
 }
 
 type cfgFunc struct {
@@ -72,6 +73,11 @@ func genCode(config string) {
 		if pkg == "" {
 			_, pkg = path.Split(_url.Path)
 		}
+		// 驱动
+		driver := c.Driver
+		if driver == "" {
+			driver = "github.com/go-sql-driver/mysql"
+		}
 		// 生成路径
 		file := c.File
 		if file == "" {
@@ -80,7 +86,7 @@ func genCode(config string) {
 		if filepath.Ext(file) == "" {
 			file += ".go"
 		}
-		code, err := mysql.NewCode(pkg, dbUrl)
+		code, err := mysql.NewCode(pkg, driver, dbUrl)
 		log.CheckError(err)
 		// sql生成FuncTPL
 		for i, f := range c.Func {

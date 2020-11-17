@@ -84,12 +84,12 @@ type sqlSegment struct {
 	column bool
 }
 
-func NewCode(pkg, dbUrl string) (*Code, error) {
+func NewCode(pkg, driver, dbUrl string) (*Code, error) {
 	c := new(Code)
 	c.dbUrl = dbUrl
 	c.file = new(fileTPL)
 	c.file.Pkg = pkg
-	c.file.Ipt = make(map[string]int)
+	c.file.Driver = driver
 	return c, nil
 }
 
@@ -131,7 +131,7 @@ func (c *Code) Gen(sql, function, tx string) (TPL, error) {
 	}
 	switch t.(type) {
 	case *querySqlTPL:
-		c.file.Ipt["strings"] = 1
+		c.file.Strings = true
 	}
 	c.file.TPL = append(c.file.TPL, t)
 	return t, nil
