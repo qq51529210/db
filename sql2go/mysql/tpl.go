@@ -91,7 +91,7 @@ func {{.Func}}({{.ParamTPL}}) ([]{{.Type}}, error) {
 		}
 		{{- if .NullType}}
 		if model.Valid {
-			models = append(models, model.{{.NullValue}})
+			models = append(models, {{.Type}}(model.{{.NullValue}}))
 		}
 		{{- else}}
 		models = append(models, model)
@@ -104,7 +104,7 @@ func {{.Func}}({{.ParamTPL}}) ([]{{.Type}}, error) {
 type queryTPL struct {
 	*tpl
 	Param []string
-	scanField
+	*scanFieldTPL
 }
 
 func (t *queryTPL) Execute(w io.Writer) error {
@@ -151,7 +151,7 @@ func {{.Func}}({{.ParamTPL}}) (sql.Result, error) {
 }
 `))
 
-type scanField struct {
+type scanFieldTPL struct {
 	Name      string
 	Type      string
 	NullType  string
@@ -242,7 +242,7 @@ type queryStructTPL struct {
 	*tpl
 	Param []string
 	Field [][3]string
-	Scan  []*scanField
+	Scan  []*scanFieldTPL
 }
 
 func (t *queryStructTPL) Execute(w io.Writer) error {
@@ -335,7 +335,7 @@ type querySqlTPL struct {
 	Param   []string
 	Column  []string
 	Field   [][3]string
-	Scan    []*scanField
+	Scan    []*scanFieldTPL
 	Segment []string
 }
 

@@ -83,9 +83,11 @@ func genCode(config string) {
 		code, err := mysql.NewCode(pkg, dbUrl)
 		log.CheckError(err)
 		// sql生成FuncTPL
-		for _, s := range c.Func {
-			_, err = code.Gen(strings.Join(s.SQL, " "), s.Name, s.Tx)
-			log.CheckError(err)
+		for i, f := range c.Func {
+			_, err = code.Gen(strings.Join(f.SQL, " "), f.Name, f.Tx)
+			if err != nil {
+				log.CheckError(fmt.Errorf("sql[%d]: %v", i, err))
+			}
 		}
 		// 保存
 		log.CheckError(code.SaveFile(file))

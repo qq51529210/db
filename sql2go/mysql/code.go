@@ -11,48 +11,70 @@ func parseError(s string) error {
 	return fmt.Errorf("parse error '%s'", s)
 }
 
-func goType(dataType string) (string, string, string) {
+func goType(dataType string) string {
 	dataType = strings.ToLower(dataType)
 	switch dataType {
 	case "tinyint":
-		return "int8", "sql.NullInt32", "Int32"
+		return "int8"
 	case "smallint":
-		return "int16", "sql.NullInt32", "Int32"
+		return "int16"
 	case "mediumint":
-		return "int32", "sql.NullInt32", "Int32"
+		return "int32"
 	case "int":
-		return "int", "sql.NullInt64", "Int64"
+		return "int"
 	case "bigint":
-		return "int64", "sql.NullInt64", "Int64"
+		return "int64"
 	case "tinyint unsigned":
-		return "uint8", "sql.NullInt32", "Int32"
+		return "uint8"
 	case "smallint unsigned":
-		return "uint16", "sql.NullInt32", "Int32"
+		return "uint16"
 	case "mediumint unsigned":
-		return "uint32", "sql.NullInt32", "Int32"
+		return "uint32"
 	case "int unsigned":
-		return "uint", "sql.NullInt64", "Int64"
+		return "uint"
 	case "bigint unsigned":
-		return "uint64", "sql.NullInt64", "Int64"
+		return "uint64"
 	case "float":
-		return "float32", "sql.NullFloat64", "Float64"
+		return "float32"
 	case "double", "decimal":
-		return "float64", "sql.NullFloat64", "Float64"
+		return "float64"
 	case "tinyblob", "blob", "mediumblob", "longblob":
-		return "[]byte", "", ""
+		return "[]byte"
 	case "tinytext", "text", "mediumtext", "longtext":
-		return "string", "sql.NullString", "String"
-	case "date", "time", "year", "datetime", "timestamp":
-		return "string", "sql.NullString", "String"
+		return "string"
+	case "year":
+		return "uint16"
+	case "date", "time", "datetime", "timestamp":
+		return "string"
 	default:
 		if strings.HasPrefix(dataType, "binary") {
-			return "[]byte", "", ""
+			return "[]byte"
 		}
 		if strings.HasPrefix(dataType, "decimal") {
-			return "float64", "sql.NullFloat64", "Float64"
+			return "float64"
 		}
-		return "string", "sql.NullString", "String"
+		return "string"
 	}
+}
+
+func toScanFieldTPL(columnType *sql.ColumnType) *scanFieldTPL {
+	t := new(scanFieldTPL)
+	t.Name = snakeCaseToPascalCase(strings.Replace(columnType.Name(), ".", "_", -1))
+	t.Type = goType(columnType.DatabaseTypeName())
+	nullable, ok := columnType.Nullable()
+	if ok && nullable {
+		if strings.Contains(t.Type, "int") {
+			t.NullType = "sql.NullInt64"
+			t.NullValue = "Int64"
+		} else if strings.Contains(t.Type, "float") {
+			t.NullType = "sql.NullFloat64"
+			t.NullValue = "Float64"
+		} else {
+			t.NullType = "sql.NullString"
+			t.NullValue = "String"
+		}
+	}
+	return t
 }
 
 type sqlSegment struct {
@@ -193,13 +215,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 				t.Param = append(t.Param, p.string)
 			}
 			for _, c := range columns {
-				s := new(scanField)
-				s.Name = snakeCaseToPascalCase(strings.Replace(c.Name(), ".", "_", -1))
-				s.Type, s.NullType, s.NullValue = goType(c.DatabaseTypeName())
-				if nul, ok := c.Nullable(); ok && !nul {
-					s.NullType = ""
-					s.NullValue = ""
-				}
+				s := toScanFieldTPL(c)
 				t.Scan = append(t.Scan, s)
 				var field [3]string
 				field[0] = s.Name
@@ -237,7 +253,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 		if len(columns) < 2 {
 			t := new(queryTPL)
 			t.tpl = tp
-			t.Type, t.NullType, t.NullValue = goType(columns[0].DatabaseTypeName())
+			t.scanFieldTPL = toScanFieldTPL(columns[0])
 			for _, p := range params {
 				t.Param = append(t.Param, p.string)
 			}
@@ -252,13 +268,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 			t.Param = append(t.Param, p.string)
 		}
 		for _, c := range columns {
-			s := new(scanField)
-			s.Name = snakeCaseToPascalCase(strings.Replace(c.Name(), ".", "_", -1))
-			s.Type, s.NullType, s.NullValue = goType(c.DatabaseTypeName())
-			if nul, ok := c.Nullable(); ok && !nul {
-				s.NullType = ""
-				s.NullValue = ""
-			}
+			s := toScanFieldTPL(c)
 			t.Scan = append(t.Scan, s)
 			var field [3]string
 			field[0] = s.Name
@@ -306,12 +316,10 @@ func (c *Code) genExec(function, tx string, segments []*sqlSegment) (TPL, error)
 	tp.Stmt = c.stmtName(tp.Sql)
 	// 只有一个入参，不生成结构体
 	{
-		if len(params) < 2 {
+		if params != nil && len(params) < 2 {
 			t := new(execTPL)
 			t.tpl = tp
-			for _, p := range params {
-				t.Param = append(t.Param, p.string)
-			}
+			t.Param = append(t.Param, params[0].string)
 			return t, nil
 		}
 	}
