@@ -174,3 +174,5 @@ func UserSearchByNameLike(order string, name, begin, total interface{}) ([]*User
     1. 参数name会转换snake case to camel case。
     1. 如果select字段只有一个，不会生成struct。  
     1. 返回的总是[]。
+## 下一步
+实现http方式的在线生成
