@@ -162,7 +162,6 @@ func UserSearchByNameLike(order string, name, begin, total interface{}) ([]*User
 	return models, nil
 }
 ```
-## 解析
 #### 参数:{name:type}
 1. name是定义个名称
 2. type是golang基本数据类型，否则，代表的是分页的order或sort。  
