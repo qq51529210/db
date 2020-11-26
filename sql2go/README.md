@@ -164,15 +164,15 @@ func UserSearchByNameLike(order string, name, begin, total interface{}) ([]*User
 ```
 ## 解析
 #### 参数:{name:type}
-    #### name是定义个名称
-    #### type是golang基本数据类型，否则，代表的是分页的order或sort。  
-    #### 会转换成与编译'?'，分页则是实时组成sql。
+1. name是定义个名称
+2. type是golang基本数据类型，否则，代表的是分页的order或sort。  
+3. 会转换成与编译'?'，分页则是实时组成sql。
 #### db.Exec函数:
-    #### 参数name会转换snake case to pascal case。
-    #### 如果只有一个，不会生成struct。  
+1. 参数name会转换snake case to pascal case。
+2. 如果只有一个，不会生成struct。  
 #### db.Query函数:
-    #### 参数name会转换snake case to camel case。
-    #### 如果select字段只有一个，不会生成struct。  
-    #### 返回的总是[]。
+1. 参数name会转换snake case to camel case。
+2. 如果select字段只有一个，不会生成struct。  
+3. 返回的总是[]。
 ## 下一步
 实现http方式的在线生成
