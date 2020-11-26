@@ -2,6 +2,7 @@ package dao
 
 import (
 	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
 	"strings"
 	"time"
 )
@@ -126,15 +127,13 @@ func UserCount(id interface{}) ([]int64, error) {
 		}
 		return models, nil
 	}
-	var model sql.NullInt64
+	var model int64
 	for rows.Next() {
 		err = rows.Scan(&model)
 		if nil != err {
 			return nil, err
 		}
-		if model.Valid {
-			models = append(models, model.Int64)
-		}
+		models = append(models, model)
 	}
 	return models, nil
 }
@@ -252,7 +251,7 @@ func AppRoleAccessList(order, sort string, appId, roleId, begin, total interface
 		}
 		return models, nil
 	}
-	var Access sql.NullInt32
+	var Access sql.NullInt64
 	for rows.Next() {
 		model := new(AppRoleAccessListModel)
 		err = rows.Scan(
@@ -264,7 +263,7 @@ func AppRoleAccessList(order, sort string, appId, roleId, begin, total interface
 			return nil, err
 		}
 		if Access.Valid {
-			model.Access = int8(Access.Int32)
+			model.Access = int8(Access.Int64)
 		}
 		models = append(models, model)
 	}
