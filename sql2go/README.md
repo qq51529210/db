@@ -5,7 +5,7 @@
 ## 使用
 sql2go --config cfg.json  
 ## sql写法
-1. delete from user where id={id:int64}  
+#### delete from user where id={id:int64}  
 ```
 // delete from user where id=?
 func UserDeleteById(id interface{}) (sql.Result, error) {
@@ -14,7 +14,7 @@ func UserDeleteById(id interface{}) (sql.Result, error) {
 	)
 }
 ```
-1. insert into user(name,password,email,mobile,state) values({name:string},{password:string},{email:string},{mobile:string},1)  
+#### insert into user(name,password,email,mobile,state) values({name:string},{password:string},{email:string},{mobile:string},1)  
 ```
 type UserInsertModel struct {
 	Name string `json:"name"`
@@ -33,7 +33,7 @@ func UserInsert(model *UserInsertModel) (sql.Result, error) {
 	)
 }
 ```
-1. update user set password={password:string} where id={id:int64}  
+#### update user set password={password:string} where id={id:int64}  
 ```
 type UserUpdateModel struct {
 	Password string `json:"password"`
@@ -48,7 +48,7 @@ func UserUpdate(model *UserUpdateModel) (sql.Result, error) {
 	)
 }
 ```
-1. select count(id) from user where id>{id:int64}  
+#### select count(id) from user where id>{id:int64}  
 ```
 // select count(id) from user where id>?
 func UserCount(id interface{}) ([]int64, error) {
@@ -73,7 +73,7 @@ func UserCount(id interface{}) ([]int64, error) {
 	return models, nil
 }
 ```
-1. select * from user where id>{id:int64}  
+#### select * from user where id>{id:int64}  
 ```
 type UserListModel struct {
 	Id int `json:"id"`
@@ -114,7 +114,7 @@ func UserList(id interface{}) ([]*UserListModel, error) {
 	return models, nil
 }
 ```
-1. select * from user where name like {name:string} order by {order:} {sort:} limit {begin:int64}, {total:int64}  
+#### select * from user where name like {name:string} order by {order:} {sort:} limit {begin:int64}, {total:int64}  
 ```
 type UserSearchByNameLikeModel struct {
 	Id int `json:"id"`
@@ -163,16 +163,16 @@ func UserSearchByNameLike(order string, name, begin, total interface{}) ([]*User
 }
 ```
 ## 解析
-1. 参数:{name:type}
-    1. name是定义个名称
-    1. type是golang基本数据类型，否则，代表的是分页的order或sort。  
-    1. 会转换成与编译'?'，分页则是实时组成sql。
-1. db.Exec函数:
-    1. 参数name会转换snake case to pascal case。
-    1. 如果只有一个，不会生成struct。  
-1. db.Query函数:
-    1. 参数name会转换snake case to camel case。
-    1. 如果select字段只有一个，不会生成struct。  
-    1. 返回的总是[]。
+#### 参数:{name:type}
+    #### name是定义个名称
+    #### type是golang基本数据类型，否则，代表的是分页的order或sort。  
+    #### 会转换成与编译'?'，分页则是实时组成sql。
+#### db.Exec函数:
+    #### 参数name会转换snake case to pascal case。
+    #### 如果只有一个，不会生成struct。  
+#### db.Query函数:
+    #### 参数name会转换snake case to camel case。
+    #### 如果select字段只有一个，不会生成struct。  
+    #### 返回的总是[]。
 ## 下一步
 实现http方式的在线生成
