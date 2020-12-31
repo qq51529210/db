@@ -29,12 +29,7 @@ type cfgFunc struct {
 }
 
 func main() {
-	defer func() {
-		re := recover()
-		if re != nil {
-			log.Recover(re, false)
-		}
-	}()
+	log.Recover(nil)
 	var config, http string
 	flag.StringVar(&config, "config", "", "config file path")
 	flag.StringVar(&http, "http", "", "http listen address")
@@ -49,22 +44,28 @@ func main() {
 	flag.PrintDefaults()
 }
 
+func checkError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
 func loadCfg(path string) *cfg {
 	f, err := os.Open(path)
-	log.CheckError(err)
+	checkError(err)
 	defer func() {
 		_ = f.Close()
 	}()
 	c := new(cfg)
 	err = json.NewDecoder(f).Decode(c)
-	log.CheckError(err)
+	checkError(err)
 	return c
 }
 
 func genCode(config string) {
 	c := loadCfg(config)
 	_url, err := url.Parse(c.DBUrl)
-	log.CheckError(err)
+	checkError(err)
 	dbUrl := strings.Replace(c.DBUrl, _url.Scheme+"://", "", 1)
 	switch strings.ToLower(_url.Scheme) {
 	case db2go.MYSQL:
@@ -87,16 +88,16 @@ func genCode(config string) {
 			file += ".go"
 		}
 		code, err := mysql.NewCode(pkg, driver, dbUrl)
-		log.CheckError(err)
+		checkError(err)
 		// sql生成FuncTPL
 		for i, f := range c.Func {
 			_, err = code.Gen(strings.Join(f.SQL, " "), f.Name, f.Tx)
 			if err != nil {
-				log.CheckError(fmt.Errorf("sql[%d]: %v", i, err))
+				checkError(fmt.Errorf("sql[%d]: %v", i, err))
 			}
 		}
 		// 保存
-		log.CheckError(code.SaveFile(file))
+		checkError(code.SaveFile(file))
 	default:
 		panic(fmt.Errorf("unsupported database '%s'", _url.Scheme))
 	}
