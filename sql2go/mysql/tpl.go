@@ -389,8 +389,12 @@ var _fileTPL = template.Must(template.New("fileTPL").Parse(`package {{.Pkg}}
 
 import (
 	"database/sql"
-	_ "{{.Driver}}"
-	{{if .Strings}}"strings"{{end}}
+	{{if eq .Driver "github.com/go-sql-driver/mysql" -}}
+	"{{.Driver}}"
+	{{end -}}
+	{{if .Strings -}}
+	"strings"
+	{{end -}}
 	"time"
 )
 
@@ -400,6 +404,15 @@ var (
 	stmt{{$i}} *sql.Stmt // {{$s}}
 	{{- end}}
 )
+
+{{- if eq .Driver "github.com/go-sql-driver/mysql"}}
+func IsUniqueKeyError(err error) bool {
+	if e, o := err.(*mysql.MySQLError); o {
+		return e.Number == 1169
+	}
+	return false
+}
+{{end -}}
 
 func Init(url string, maxOpen, maxIdle int, maxLifeTime, maxIdleTime time.Duration) (err error){
 	DB, err = sql.Open("mysql", url)
