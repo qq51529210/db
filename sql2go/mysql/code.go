@@ -220,7 +220,7 @@ func (c *Code) SaveFile(file string) error {
 
 func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error) {
 	// sql和参数和分页条件
-	var str strings.Builder
+	var str bytes.Buffer
 	var page []*sqlSegment
 	var params []*sqlSegment
 	var testArgs []interface{}
@@ -232,13 +232,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 					str.WriteString(seg.value)
 				} else {
 					params = append(params, seg)
-					if strings.Contains(seg.value, "int") {
-						testArgs = append(testArgs, 0)
-					} else if strings.Contains(seg.value, "float") {
-						testArgs = append(testArgs, float64(0))
-					} else {
-						testArgs = append(testArgs, "''")
-					}
+					testArgs = append(testArgs, seg.value)
 					str.WriteByte('?')
 				}
 			} else {
@@ -246,6 +240,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 			}
 		}
 	}
+	_sql := strings.TrimSpace(string(str.Bytes()))
 	// 测试sql，获取结果集的字段信息
 	var columns []*sql.ColumnType
 	{
@@ -257,7 +252,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 			_ = db.Close()
 		}()
 		// 测试sql
-		rows, err := db.Query(str.String(), testArgs...)
+		rows, err := db.Query(_sql, testArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +264,7 @@ func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error
 	}
 	// 公共模板
 	tp := new(tpl)
-	tp.Sql = str.String()
+	tp.Sql = _sql
 	tp.Func = function
 	tp.Tx = tx
 	// 无法预编译的sql
@@ -415,52 +410,157 @@ func (c *Code) parseSegments(s string) ([]*sqlSegment, error) {
 	if s == "" {
 		return segments, nil
 	}
+	addSegment := func(seg *sqlSegment) {
+		seg.string = strings.TrimSpace(seg.string)
+		if seg.string == "" {
+			return
+		}
+		if seg.string == "," || len(segments) < 1 {
+			segments = append(segments, seg)
+			return
+		}
+		last := segments[len(segments)-1]
+		if last.string != "," {
+			segments = append(segments, &sqlSegment{string: " "})
+		}
+		segments = append(segments, seg)
+	}
+	indexString := func(str string) int {
+		for i := 1; i < len(str); i++ {
+			if str[i] == '\'' && str[i-1] != '\\' {
+				return i
+			}
+		}
+		return -1
+	}
+	indexBrace := func(str string) int {
+		i := 1
+		for i < len(str) {
+			if str[i] == '\'' {
+				j := indexString(str[i:])
+				if j < 0 {
+					return j
+				}
+				i += j
+			} else if str[i] == '}' {
+				return i
+			}
+			i++
+		}
+		return -1
+	}
+	indexBrackets := func(str string) int {
+		i := 1
+		for i < len(str) {
+			if str[i] == '\'' {
+				j := indexString(str[i:])
+				if j < 0 {
+					return j
+				}
+				i += j
+			} else if str[i] == ']' {
+				return i
+			}
+			i++
+		}
+		return -1
+	}
 	i := 0
-Loop:
-	for ; i < len(s); i++ {
+	//Loop:
+	for i < len(s) {
 		switch s[i] {
 		case '\'':
-			j := i
-			i++
-			for ; i < len(s); i++ {
-				if s[i] == '\'' && s[i-1] != '\\' {
-					i++
-					continue Loop
-				}
+			j := indexString(s[i:])
+			if j < 0 {
+				return nil, parseError(s[i:])
 			}
-			return nil, parseError(s[j:])
-		case '{':
-			// "{}"前的sql
+			i += j
+		case '[':
+			// 前面的sql
 			if i != 0 {
-				segments = append(segments, &sqlSegment{string: s[:i]})
+				addSegment(&sqlSegment{string: s[:i]})
 				s = s[i:]
 			}
-			// "{}"
-			i = strings.IndexByte(s, '}')
+			// 字段[xxx]
+			i = indexBrackets(s)
 			if i < 0 {
 				return nil, parseError(s)
 			}
-			j := i + 1
-			// "{string:type}"或者"{string:column}"
+			// 拆分变量id:''
 			ss := strings.Split(s[1:i], ":")
 			if len(ss) != 2 {
-				return nil, parseError(s[:j])
+				return nil, parseError(s[1:i])
 			}
-			// 是否基本类型
-			switch ss[1] {
-			case "int", "int8", "int16", "int32", "int64",
-				"uint", "uint8", "uint16", "uint32", "uint64",
-				"float32", "float64", "string", "[]byte":
-				segments = append(segments, &sqlSegment{string: ss[0], value: ss[1], param: true})
-			default:
-				segments = append(segments, &sqlSegment{string: ss[0], value: ss[1], param: true, column: true})
-			}
-			s = s[j:]
+			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true, column: true})
+			s = strings.TrimSpace(s[i+1:])
 			i = 0
+		case '{':
+			// 前面的sql
+			if i != 0 {
+				addSegment(&sqlSegment{string: s[:i]})
+				s = s[i:]
+			}
+			// {xxx}变量
+			i = indexBrace(s)
+			if i < 0 {
+				return nil, parseError(s)
+			}
+			// 拆分变量id:''
+			ss := strings.Split(s[1:i], ":")
+			if len(ss) != 2 {
+				return nil, parseError(s[1:i])
+			}
+			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true})
+			s = strings.TrimSpace(s[i+1:])
+			i = 0
+		default:
+			i++
 		}
 	}
+	//for ; i < len(s); i++ {
+	//	switch s[i] {
+	//	case '\'':
+	//		j := i
+	//		i++
+	//		for ; i < len(s); i++ {
+	//			if s[i] == '\'' && s[i-1] != '\\' {
+	//				i++
+	//				continue Loop
+	//			}
+	//		}
+	//		return nil, parseError(s[j:])
+	//	case '{':
+	//		// "{}"前的sql
+	//		if i != 0 {
+	//			addSegment(&sqlSegment{string: s[:i]})
+	//			s = s[i:]
+	//		}
+	//		// "{}"
+	//		i = strings.IndexByte(s, '}')
+	//		if i < 0 {
+	//			return nil, parseError(s)
+	//		}
+	//		j := i + 1
+	//		// "{string:type}"或者"{string:column}"
+	//		ss := strings.Split(s[1:i], ":")
+	//		if len(ss) != 2 {
+	//			return nil, parseError(s[:j])
+	//		}
+	//		// 是否基本类型
+	//		switch ss[1] {
+	//		case "int", "int8", "int16", "int32", "int64",
+	//			"uint", "uint8", "uint16", "uint32", "uint64",
+	//			"float32", "float64", "string", "[]byte":
+	//			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true})
+	//		default:
+	//			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true, column: true})
+	//		}
+	//		s = s[j:]
+	//		i = 0
+	//	}
+	//}
 	if s != "" {
-		segments = append(segments, &sqlSegment{string: s})
+		addSegment(&sqlSegment{string: s})
 	}
 	return segments, nil
 }

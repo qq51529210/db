@@ -346,6 +346,7 @@ type querySqlTPL struct {
 	*tpl
 	Param   []string
 	Column  []string
+	Sort    string
 	Field   [][3]string
 	Scan    []*scanFieldTPL
 	Segment []string
