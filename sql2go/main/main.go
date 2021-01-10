@@ -15,15 +15,24 @@ import (
 )
 
 type cfg struct {
-	DBUrl  string     `json:"dbUrl"`           // 数据库配置
-	Pkg    string     `json:"pkg,omitempy"`    // 代码包名，空则使用数据库名称
-	File   string     `json:"file,omitempy"`   // 生成代码根目录，空则使用程序当前目录
-	Func   []*cfgFunc `json:"func,omitempy"`   // 函数
-	Driver string     `json:"driver,omitempy"` // 数据库驱动
+	DBUrl  string      `json:"dbUrl"`           // 数据库配置
+	Pkg    string      `json:"pkg,omitempy"`    // 代码包名，空则使用数据库名称
+	File   string      `json:"file,omitempy"`   // 生成代码根目录，空则使用程序当前目录
+	Query  []*cfgQuery `json:"query,omitempy"`  // 函数
+	Exec   []*cfgExec  `json:"exec,omitempy"`   // 函数
+	Driver string      `json:"driver,omitempy"` // 数据库驱动
 }
 
-type cfgFunc struct {
-	Name string   `json:"name,omitempy"` //
+type cfgQuery struct {
+	Name string   `json:"func,omitempy"` //
+	Tx   string   `json:"tx,omitempy"`   //
+	Row  bool     `json:"row,omitempy"`  //
+	Null bool     `json:"null,omitempy"` //
+	SQL  []string `json:"sql,omitempy"`  //
+}
+
+type cfgExec struct {
+	Name string   `json:"func,omitempy"` //
 	Tx   string   `json:"tx,omitempy"`   //
 	SQL  []string `json:"sql,omitempy"`  //
 }
@@ -90,8 +99,14 @@ func genCode(config string) {
 		code, err := mysql.NewCode(pkg, driver, dbUrl)
 		checkError(err)
 		// sql生成FuncTPL
-		for i, f := range c.Func {
-			_, err = code.Gen(strings.Join(f.SQL, " "), f.Name, f.Tx)
+		for i, f := range c.Query {
+			_, err = code.Query(strings.Join(f.SQL, " "), f.Name, f.Tx, f.Row, f.Null)
+			if err != nil {
+				checkError(fmt.Errorf("sql[%d]: %v", i, err))
+			}
+		}
+		for i, f := range c.Exec {
+			_, err = code.Exec(strings.Join(f.SQL, " "), f.Name, f.Tx)
 			if err != nil {
 				checkError(fmt.Errorf("sql[%d]: %v", i, err))
 			}

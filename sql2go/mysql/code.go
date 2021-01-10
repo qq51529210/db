@@ -1,37 +1,18 @@
 package mysql
 
 import (
-	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
-func pascalCaseToSnakeCase(s string) string {
-	if len(s) < 1 {
-		return ""
-	}
-	var buf bytes.Buffer
-	c1 := s[0]
-	if c1 >= 'A' && c1 <= 'Z' {
-		c1 = c1 + 'a' - 'A'
-	}
-	buf.WriteByte(c1)
-
-	for i := 1; i < len(s); i++ {
-		c2 := s[i]
-		if c2 >= 'A' && c2 <= 'Z' {
-			c2 = c2 + 'a' - 'A'
-			c1 = s[i-1]
-			if (c1 >= 'a' && c1 <= 'z') || (c1 >= '0' && c1 <= '9') {
-				buf.WriteByte('_')
-			}
-		}
-		buf.WriteByte(c2)
-	}
-	return string(buf.Bytes())
-}
+var (
+	errEmptyFunctionName = errors.New("empty function name")
+	errEmptySQL          = errors.New("empty sql")
+)
 
 func snakeCaseToPascalCase(s string) string {
 	if len(s) < 1 {
@@ -60,20 +41,8 @@ func snakeCaseToPascalCase(s string) string {
 	return buf.String()
 }
 
-func camelCaseToPascalCase(s string) string {
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
 func pascalCaseToCamelCase(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
-}
-
-func camelCaseToSnakeCase(s string) string {
-	return pascalCaseToSnakeCase(camelCaseToPascalCase(s))
-}
-
-func snakeCaseToCamelCase(s string) string {
-	return pascalCaseToCamelCase(snakeCaseToPascalCase(s))
 }
 
 func parseError(s string) error {
@@ -126,31 +95,54 @@ func goType(dataType string) string {
 	}
 }
 
-func toScanFieldTPL(columnType *sql.ColumnType) *scanFieldTPL {
-	t := new(scanFieldTPL)
-	t.Name = snakeCaseToPascalCase(strings.Replace(columnType.Name(), ".", "_", -1))
-	t.Type = goType(columnType.DatabaseTypeName())
-	nullable, ok := columnType.Nullable()
-	if ok && nullable {
+func goNullType(typ string) string {
+	if strings.Contains(typ, "int") {
+		return "sql.NullInt64"
+	} else if strings.Contains(typ, "float") {
+		return "sql.NullFloat64"
+	} else {
+		return "sql.NullString"
+	}
+}
+
+func dbColumnToScanTPL(c *sql.ColumnType) *scanTPL {
+	t := new(scanTPL)
+	t.Name = snakeCaseToPascalCase(strings.Replace(c.Name(), ".", "_", -1))
+	t.Type = goType(c.DatabaseTypeName())
+	if na, ok := c.Nullable(); ok && na {
 		if strings.Contains(t.Type, "int") {
 			t.NullType = "sql.NullInt64"
 			t.NullValue = "Int64"
+			t.NullType2 = "int64"
 		} else if strings.Contains(t.Type, "float") {
 			t.NullType = "sql.NullFloat64"
 			t.NullValue = "Float64"
+			t.NullType2 = "float64"
 		} else {
 			t.NullType = "sql.NullString"
 			t.NullValue = "String"
+			t.NullType2 = "string"
 		}
 	}
 	return t
 }
 
-type sqlSegment struct {
-	string string
-	value  string
-	param  bool
-	column bool
+func dbColumnToField(c *sql.ColumnType, nullField bool) [3]string {
+	var field [3]string
+	field[0] = snakeCaseToPascalCase(c.Name())
+	field[1] = dbColumnToFieldType(c, nullField)
+	field[2] = "`" + fmt.Sprintf(`json:"%s"`, pascalCaseToCamelCase(field[0])) + "`"
+	return field
+}
+
+func dbColumnToFieldType(c *sql.ColumnType, nullField bool) string {
+	s := goType(c.DatabaseTypeName())
+	if nullField {
+		if na, ok := c.Nullable(); ok && na {
+			s = goNullType(s)
+		}
+	}
+	return s
 }
 
 func NewCode(pkg, driver, dbUrl string) (*Code, error) {
@@ -167,46 +159,13 @@ type Code struct {
 	dbUrl string
 }
 
-func (c *Code) Gen(sql, function, tx string) (TPL, error) {
-	// 是否query
-	var isQuery bool
-	{
-		i := strings.IndexByte(sql, ' ')
-		if i < 0 {
-			return nil, parseError(sql)
-		}
-		switch strings.ToLower(sql[:i]) {
-		case "select":
-			isQuery = true
-		case "insert", "update", "delete":
-		default:
-			return nil, parseError(sql)
-		}
-	}
-	// sql片段
-	segments, err := c.parseSegments(sql)
-	if err != nil {
-		return nil, err
-	}
-	// 模板
-	var t TPL
-	if isQuery {
-		t, err = c.genQuery(function, tx, segments)
-	} else {
-		t, err = c.genExec(function, tx, segments)
-	}
-	if err != nil {
-		return nil, err
-	}
-	switch t.(type) {
-	case *querySqlTPL:
-		c.file.Strings = true
-	}
-	c.file.TPL = append(c.file.TPL, t)
-	return t, nil
-}
-
 func (c *Code) SaveFile(file string) error {
+	// 创建目录
+	dir := filepath.Dir(file)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return err
+	}
 	// 输出模板
 	f, err := os.OpenFile(file, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, os.ModePerm)
 	if err != nil {
@@ -218,143 +177,26 @@ func (c *Code) SaveFile(file string) error {
 	return c.file.Execute(f)
 }
 
-func (c *Code) genQuery(function, tx string, segments []*sqlSegment) (TPL, error) {
-	// sql和参数和分页条件
-	var str bytes.Buffer
-	var page []*sqlSegment
-	var params []*sqlSegment
-	var testArgs []interface{}
+func (c *Code) Exec(originalSql, function, tx string) (TPL, error) {
+	if originalSql == "" {
+		return nil, errEmptySQL
+	}
+	if function == "" {
+		return nil, errEmptyFunctionName
+	}
+	// 解析sql
+	segments, paramSegments, _, err := parseSegments(originalSql)
+	if err != nil {
+		return nil, err
+	}
+	// 重新写sql
+	var _sql strings.Builder
 	{
-		for _, seg := range segments {
-			if seg.param {
-				if seg.column {
-					page = append(page, seg)
-					str.WriteString(seg.value)
-				} else {
-					params = append(params, seg)
-					testArgs = append(testArgs, seg.value)
-					str.WriteByte('?')
-				}
+		for _, s := range segments {
+			if s.param {
+				_sql.WriteByte('?')
 			} else {
-				str.WriteString(seg.string)
-			}
-		}
-	}
-	_sql := strings.TrimSpace(string(str.Bytes()))
-	// 测试sql，获取结果集的字段信息
-	var columns []*sql.ColumnType
-	{
-		db, err := sql.Open("mysql", c.dbUrl)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			_ = db.Close()
-		}()
-		// 测试sql
-		rows, err := db.Query(_sql, testArgs...)
-		if err != nil {
-			return nil, err
-		}
-		// 获取结果集的字段信息
-		columns, err = rows.ColumnTypes()
-		if err != nil {
-			return nil, err
-		}
-	}
-	// 公共模板
-	tp := new(tpl)
-	tp.Sql = _sql
-	tp.Func = function
-	tp.Tx = tx
-	// 无法预编译的sql
-	{
-		if page != nil && len(page) > 0 {
-			t := new(querySqlTPL)
-			t.tpl = tp
-			for _, p := range page {
-				t.Column = append(t.Column, p.string)
-			}
-			for _, p := range params {
-				t.Param = append(t.Param, p.string)
-			}
-			for _, c := range columns {
-				s := toScanFieldTPL(c)
-				t.Scan = append(t.Scan, s)
-				var field [3]string
-				field[0] = s.Name
-				field[1] = s.Type
-				field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
-				t.Field = append(t.Field, field)
-			}
-			var segment strings.Builder
-			segment.WriteByte('"')
-			for _, s := range segments {
-				if s.column {
-					segment.WriteByte('"')
-					t.Segment = append(t.Segment, segment.String())
-					segment.Reset()
-					segment.WriteByte('"')
-					t.Segment = append(t.Segment, s.string)
-				} else {
-					if s.param {
-						segment.WriteByte('?')
-					} else {
-						segment.WriteString(s.string)
-					}
-				}
-			}
-			if segment.Len() > 0 {
-				segment.WriteByte('"')
-				t.Segment = append(t.Segment, segment.String())
-			}
-			return t, nil
-		}
-	}
-	tp.Stmt = c.stmtName(tp.Sql)
-	// 只有一个结果，不生成结构体
-	{
-		if len(columns) < 2 {
-			t := new(queryTPL)
-			t.tpl = tp
-			t.scanFieldTPL = toScanFieldTPL(columns[0])
-			for _, p := range params {
-				t.Param = append(t.Param, p.string)
-			}
-			return t, nil
-		}
-	}
-	// 有多个结果，生成结构体
-	{
-		t := new(queryStructTPL)
-		t.tpl = tp
-		for _, p := range params {
-			t.Param = append(t.Param, p.string)
-		}
-		for _, c := range columns {
-			s := toScanFieldTPL(c)
-			t.Scan = append(t.Scan, s)
-			var field [3]string
-			field[0] = s.Name
-			field[1] = s.Type
-			field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
-			t.Field = append(t.Field, field)
-		}
-		return t, nil
-	}
-}
-
-func (c *Code) genExec(function, tx string, segments []*sqlSegment) (TPL, error) {
-	// sql和参数
-	var str strings.Builder
-	var params []*sqlSegment
-	{
-		for _, seg := range segments {
-			if seg.param {
-				params = append(params, seg)
-				str.WriteByte('?')
-			} else {
-				str.WriteString(seg.string)
+				_sql.WriteString(s.string)
 			}
 		}
 	}
@@ -367,23 +209,24 @@ func (c *Code) genExec(function, tx string, segments []*sqlSegment) (TPL, error)
 		defer func() {
 			_ = db.Close()
 		}()
-		_, err = db.Prepare(str.String())
+		_, err = db.Prepare(_sql.String())
 		if err != nil {
 			return nil, err
 		}
 	}
 	// 公共模板
-	tp := new(tpl)
+	var tp tpl
 	tp.Func = function
 	tp.Tx = tx
-	tp.Sql = str.String()
-	tp.Stmt = c.stmtName(tp.Sql)
+	tp.Sql = _sql.String()
+	tp.Stmt = c.file.StmtName(tp.Sql)
 	// 只有一个入参，不生成结构体
 	{
-		if params != nil && len(params) < 2 {
+		if paramSegments != nil && len(paramSegments) < 2 {
 			t := new(execTPL)
 			t.tpl = tp
-			t.Param = append(t.Param, params[0].string)
+			t.Param = append(t.Param, paramSegments[0].string)
+			c.file.Func = append(c.file.Func, t)
 			return t, nil
 		}
 	}
@@ -391,182 +234,187 @@ func (c *Code) genExec(function, tx string, segments []*sqlSegment) (TPL, error)
 	{
 		t := new(execStructTPL)
 		t.tpl = tp
-		t.Model = function + "Model"
-		for _, p := range params {
+		t.Stmt = function + "Model"
+		for _, s := range paramSegments {
 			var field [3]string
-			field[0] = snakeCaseToPascalCase(p.string)
-			field[1] = p.value
+			field[0] = snakeCaseToPascalCase(s.string)
+			field[1] = s.value
 			field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
 			t.Field = append(t.Field, field)
 		}
+		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
 }
 
-func (c *Code) parseSegments(s string) ([]*sqlSegment, error) {
-	// 解析sql片段
-	var segments []*sqlSegment
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return segments, nil
+func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (TPL, error) {
+	if originalSql == "" {
+		return nil, errEmptySQL
 	}
-	addSegment := func(seg *sqlSegment) {
-		seg.string = strings.TrimSpace(seg.string)
-		if seg.string == "" {
-			return
-		}
-		if seg.string == "," || len(segments) < 1 {
-			segments = append(segments, seg)
-			return
-		}
-		last := segments[len(segments)-1]
-		if last.string != "," {
-			segments = append(segments, &sqlSegment{string: " "})
-		}
-		segments = append(segments, seg)
+	if function == "" {
+		return nil, errEmptyFunctionName
 	}
-	indexString := func(str string) int {
-		for i := 1; i < len(str); i++ {
-			if str[i] == '\'' && str[i-1] != '\\' {
-				return i
-			}
-		}
-		return -1
+	// 解析sql
+	segments, paramSegments, columnSegments, err := parseSegments(originalSql)
+	if err != nil {
+		return nil, err
 	}
-	indexBrace := func(str string) int {
-		i := 1
-		for i < len(str) {
-			if str[i] == '\'' {
-				j := indexString(str[i:])
-				if j < 0 {
-					return j
+	// 重新写sql
+	var _sql strings.Builder
+	var testArgs []interface{}
+	{
+		for _, seg := range segments {
+			if seg.param {
+				if seg.column {
+					_sql.WriteString(seg.value)
+				} else {
+					testArgs = append(testArgs, seg.value)
+					_sql.WriteByte('?')
 				}
-				i += j
-			} else if str[i] == '}' {
-				return i
+			} else {
+				_sql.WriteString(seg.string)
 			}
-			i++
 		}
-		return -1
 	}
-	indexBrackets := func(str string) int {
-		i := 1
-		for i < len(str) {
-			if str[i] == '\'' {
-				j := indexString(str[i:])
-				if j < 0 {
-					return j
+	// 测试sql，获取结果集的字段信息
+	var results []*sql.ColumnType
+	{
+		db, err := sql.Open("mysql", c.dbUrl)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			_ = db.Close()
+		}()
+		// 测试sql
+		rows, err := db.Query(_sql.String(), testArgs...)
+		if err != nil {
+			return nil, err
+		}
+		// 获取结果集的字段信息
+		results, err = rows.ColumnTypes()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// 公共模板
+	var tp tpl
+	tp.Sql = _sql.String()
+	tp.Func = function
+	tp.Tx = tx
+	// 无法预编译的sql
+	if len(columnSegments) > 0 {
+		var tt querySqlTPL
+		tt.tpl = tp
+		for _, s := range columnSegments {
+			tt.Column = append(tt.Column, s.string)
+		}
+		for _, s := range paramSegments {
+			tt.Param = append(tt.Param, s.string)
+		}
+		tt.Segment = joinSegments(segments)
+		c.file.Strings = true
+		if isRow {
+			// 查询一行
+			if len(results) > 1 {
+				// 查询一行结构
+				t := new(querySqlStructRowTPL)
+				t.querySqlTPL = tt
+				t.NullField = nullField
+				for _, s := range results {
+					t.Field = append(t.Field, dbColumnToField(s, nullField))
+					t.Scan = append(t.Scan, dbColumnToScanTPL(s))
 				}
-				i += j
-			} else if str[i] == ']' {
-				return i
+				c.file.Func = append(c.file.Func, t)
+				return t, nil
 			}
-			i++
+			// 查询一行单值
+			t := new(querySqlRowTPL)
+			t.querySqlTPL = tt
+			t.NullField = nullField
+			t.Scan = dbColumnToScanTPL(results[0])
+			if t.NullField {
+				t.NullField = t.Scan.NullType != ""
+			}
+			c.file.Func = append(c.file.Func, t)
+			return t, nil
 		}
-		return -1
-	}
-	i := 0
-	//Loop:
-	for i < len(s) {
-		switch s[i] {
-		case '\'':
-			j := indexString(s[i:])
-			if j < 0 {
-				return nil, parseError(s[i:])
+		// 查询多行
+		if len(results) > 1 {
+			// 查询多行结构
+			t := new(querySqlStructRowsTPL)
+			t.querySqlTPL = tt
+			t.NullField = nullField
+			for _, s := range results {
+				t.Field = append(t.Field, dbColumnToField(s, nullField))
+				t.Scan = append(t.Scan, dbColumnToScanTPL(s))
 			}
-			i += j
-		case '[':
-			// 前面的sql
-			if i != 0 {
-				addSegment(&sqlSegment{string: s[:i]})
-				s = s[i:]
-			}
-			// 字段[xxx]
-			i = indexBrackets(s)
-			if i < 0 {
-				return nil, parseError(s)
-			}
-			// 拆分变量id:''
-			ss := strings.Split(s[1:i], ":")
-			if len(ss) != 2 {
-				return nil, parseError(s[1:i])
-			}
-			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true, column: true})
-			s = strings.TrimSpace(s[i+1:])
-			i = 0
-		case '{':
-			// 前面的sql
-			if i != 0 {
-				addSegment(&sqlSegment{string: s[:i]})
-				s = s[i:]
-			}
-			// {xxx}变量
-			i = indexBrace(s)
-			if i < 0 {
-				return nil, parseError(s)
-			}
-			// 拆分变量id:''
-			ss := strings.Split(s[1:i], ":")
-			if len(ss) != 2 {
-				return nil, parseError(s[1:i])
-			}
-			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true})
-			s = strings.TrimSpace(s[i+1:])
-			i = 0
-		default:
-			i++
+			c.file.Func = append(c.file.Func, t)
+			return t, nil
 		}
+		// 查询多行单值
+		t := new(querySqlRowsTPL)
+		t.querySqlTPL = tt
+		t.NullField = nullField
+		t.Scan = dbColumnToScanTPL(results[0])
+		if t.NullField {
+			t.NullField = t.Scan.NullType != ""
+		}
+		c.file.Func = append(c.file.Func, t)
+		return t, nil
 	}
-	//for ; i < len(s); i++ {
-	//	switch s[i] {
-	//	case '\'':
-	//		j := i
-	//		i++
-	//		for ; i < len(s); i++ {
-	//			if s[i] == '\'' && s[i-1] != '\\' {
-	//				i++
-	//				continue Loop
-	//			}
-	//		}
-	//		return nil, parseError(s[j:])
-	//	case '{':
-	//		// "{}"前的sql
-	//		if i != 0 {
-	//			addSegment(&sqlSegment{string: s[:i]})
-	//			s = s[i:]
-	//		}
-	//		// "{}"
-	//		i = strings.IndexByte(s, '}')
-	//		if i < 0 {
-	//			return nil, parseError(s)
-	//		}
-	//		j := i + 1
-	//		// "{string:type}"或者"{string:column}"
-	//		ss := strings.Split(s[1:i], ":")
-	//		if len(ss) != 2 {
-	//			return nil, parseError(s[:j])
-	//		}
-	//		// 是否基本类型
-	//		switch ss[1] {
-	//		case "int", "int8", "int16", "int32", "int64",
-	//			"uint", "uint8", "uint16", "uint32", "uint64",
-	//			"float32", "float64", "string", "[]byte":
-	//			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true})
-	//		default:
-	//			addSegment(&sqlSegment{string: ss[0], value: ss[1], param: true, column: true})
-	//		}
-	//		s = s[j:]
-	//		i = 0
-	//	}
-	//}
-	if s != "" {
-		addSegment(&sqlSegment{string: s})
+	// 可以预编译的sql
+	tp.Stmt = c.file.StmtName(tp.Sql)
+	// 只有一个结果，不生成结构体
+	if len(results) < 2 {
+		// 单行
+		if isRow {
+			t := new(queryRowTPL)
+			t.tpl = tp
+			t.NullField = nullField
+			t.Scan = dbColumnToScanTPL(results[0])
+			if t.NullField {
+				t.NullField = t.Scan.NullType != ""
+			}
+			for _, s := range paramSegments {
+				t.Param = append(t.Param, s.string)
+			}
+			c.file.Func = append(c.file.Func, t)
+			return t, nil
+		}
+		// 多行
+		t := new(queryRowsTPL)
+		t.tpl = tp
+		t.NullField = nullField
+		t.Scan = dbColumnToScanTPL(results[0])
+		if t.NullField {
+			t.NullField = t.Scan.NullType != ""
+		}
+		for _, s := range paramSegments {
+			t.Param = append(t.Param, s.string)
+		}
+		c.file.Func = append(c.file.Func, t)
+		return t, nil
 	}
-	return segments, nil
-}
-
-func (c *Code) stmtName(sql string) string {
-	s := fmt.Sprintf("stmt%d", len(c.file.Sql))
-	c.file.Sql = append(c.file.Sql, sql)
-	return s
+	// 有多个结果，生成结构体
+	if isRow {
+		t := new(queryStructRowTPL)
+		t.tpl = tp
+		t.NullField = nullField
+		for _, s := range results {
+			t.Field = append(t.Field, dbColumnToField(s, nullField))
+			t.Scan = append(t.Scan, dbColumnToScanTPL(s))
+		}
+		c.file.Func = append(c.file.Func, t)
+		return t, nil
+	}
+	t := new(queryStructRowsTPL)
+	t.tpl = tp
+	t.NullField = nullField
+	for _, s := range results {
+		t.Field = append(t.Field, dbColumnToField(s, nullField))
+		t.Scan = append(t.Scan, dbColumnToScanTPL(s))
+	}
+	c.file.Func = append(c.file.Func, t)
+	return t, nil
 }

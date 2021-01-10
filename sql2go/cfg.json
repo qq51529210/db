@@ -1,12 +1,47 @@
 {
   "?": "数据库连接字符串，url.Schema指定driver，目前只有mysql",
-  "dbUrl": "mysql://root:123456@tcp(192.168.1.66)/pro_rbac",
+  "dbUrl": "mysql://root:123123@tcp(192.168.1.66)/project_rbac",
   "?": "生成代码文件路径，空则使用程序当前目录+数据库名.go",
   "file": "dao",
   "?": "db代码包名，空则使用文件名称",
   "pkg": "dao",
   "?": "生成函数",
+  "query": [
+    {
+      "func": "GetAppCount",
+      "row": true,
+      "sql": [
+        "select count(id) sum from app"
+      ]
+    },
+    {
+      "func": "GetApps",
+      "tx": "tx",
+      "sql": [
+        "select * from app order by [order:id] [sort:desc]",
+        "limit {begin:0},{total:0}"
+      ]
+    }
+  ],
   "func": [
+    {
+      "func": "GetAppCount",
+      "tx": "tx",
+      "row": true,
+      "null": true,
+      "sql": [
+        "select count(id) from app"
+      ]
+    },
+    {
+      "func": "GetApp",
+      "tx": "tx",
+      "row": true,
+      "null": true,
+      "sql": [
+        "select * from app where id={id:0}"
+      ]
+    },
     {
       "name": "UserDeleteById",
       "sql": [
