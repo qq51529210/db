@@ -15,7 +15,7 @@ func (ss sqlSegments) ToTPL() []string {
 	var s []string
 	var b strings.Builder
 	i := 0
-	for ; i < len(s); i++ {
+	for ; i < len(ss); i++ {
 		if ss[i].column {
 			b.WriteString(`" `)
 			s = append(s, b.String())

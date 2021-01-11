@@ -224,7 +224,7 @@ func (c *Code) Exec(originalSql, function, tx string) (TPL, error) {
 	if paramSegments != nil && len(paramSegments) < 2 {
 		t := new(execTPL)
 		t.tpl = tp
-		t.Param = append(t.Param, paramSegments[0].string)
+		t.Param = append(t.Param, pascalCaseToCamelCase(snakeCaseToPascalCase(paramSegments[0].string)))
 		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
@@ -312,8 +312,8 @@ func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (T
 			if len(results) > 1 {
 				// 查询一行结构
 				t := new(querySqlStructRowTPL)
-				t.querySqlStructTPL.querySqlTPL = qst
-				t.querySqlStructTPL.InitFieldAndScan(results)
+				t.querySqlTPL = qst
+				t.InitFieldAndScan(results)
 				c.file.Func = append(c.file.Func, t)
 				return t, nil
 			}
@@ -328,8 +328,8 @@ func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (T
 		if len(results) > 1 {
 			// 查询多行结构
 			t := new(querySqlStructRowsTPL)
-			t.querySqlStructTPL.querySqlTPL = qst
-			t.querySqlStructTPL.InitFieldAndScan(results)
+			t.querySqlTPL = qst
+			t.InitFieldAndScan(results)
 			c.file.Func = append(c.file.Func, t)
 			return t, nil
 		}
