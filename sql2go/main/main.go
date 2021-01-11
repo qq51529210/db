@@ -102,13 +102,13 @@ func genCode(config string) {
 		for i, f := range c.Query {
 			_, err = code.Query(strings.Join(f.SQL, " "), f.Name, f.Tx, f.Row, f.Null)
 			if err != nil {
-				checkError(fmt.Errorf("sql[%d]: %v", i, err))
+				checkError(fmt.Errorf("query[%d]: %v", i, err))
 			}
 		}
 		for i, f := range c.Exec {
 			_, err = code.Exec(strings.Join(f.SQL, " "), f.Name, f.Tx)
 			if err != nil {
-				checkError(fmt.Errorf("sql[%d]: %v", i, err))
+				checkError(fmt.Errorf("exec[%d]: %v", i, err))
 			}
 		}
 		// 保存

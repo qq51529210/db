@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"database/sql"
 	"io"
 	"strings"
 )
@@ -58,7 +59,6 @@ type scanTPL struct {
 
 type queryTPL struct {
 	tpl
-	Field     [][3]string
 	NullField bool // 字段是否sql.NullXxx
 }
 
@@ -97,4 +97,42 @@ func (t *querySqlTPL) StmtTPL() string {
 		return t.Tx
 	}
 	return "DB"
+}
+
+type queryStructTPL struct {
+	queryTPL
+	Field [][3]string
+	Scan  []*scanTPL
+}
+
+func (t *queryStructTPL) InitFieldAndScan(columns []*sql.ColumnType) {
+	nullable := false
+	for _, c := range columns {
+		t.Field = append(t.Field, dbColumnToField(c, t.NullField))
+		scan := dbColumnToScanTPL(c, t.NullField)
+		t.Scan = append(t.Scan, scan)
+		if !nullable && scan.NullType != "" {
+			nullable = true
+		}
+	}
+	t.NullField = nullable
+}
+
+type querySqlStructTPL struct {
+	querySqlTPL
+	Field [][3]string
+	Scan  []*scanTPL
+}
+
+func (t *querySqlStructTPL) InitFieldAndScan(columns []*sql.ColumnType) {
+	nullable := false
+	for _, c := range columns {
+		t.Field = append(t.Field, dbColumnToField(c, t.NullField))
+		scan := dbColumnToScanTPL(c, t.NullField)
+		t.Scan = append(t.Scan, scan)
+		if !nullable && scan.NullType != "" {
+			nullable = true
+		}
+	}
+	t.NullField = nullable
 }

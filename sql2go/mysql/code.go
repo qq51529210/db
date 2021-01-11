@@ -105,11 +105,11 @@ func goNullType(typ string) string {
 	}
 }
 
-func dbColumnToScanTPL(c *sql.ColumnType) *scanTPL {
+func dbColumnToScanTPL(c *sql.ColumnType, nullField bool) *scanTPL {
 	t := new(scanTPL)
 	t.Name = snakeCaseToPascalCase(strings.Replace(c.Name(), ".", "_", -1))
 	t.Type = goType(c.DatabaseTypeName())
-	if na, ok := c.Nullable(); ok && na {
+	if na, ok := c.Nullable(); nullField && ok && na {
 		if strings.Contains(t.Type, "int") {
 			t.NullType = "sql.NullInt64"
 			t.NullValue = "Int64"
@@ -221,30 +221,26 @@ func (c *Code) Exec(originalSql, function, tx string) (TPL, error) {
 	tp.Sql = _sql.String()
 	tp.Stmt = c.file.StmtName(tp.Sql)
 	// 只有一个入参，不生成结构体
-	{
-		if paramSegments != nil && len(paramSegments) < 2 {
-			t := new(execTPL)
-			t.tpl = tp
-			t.Param = append(t.Param, paramSegments[0].string)
-			c.file.Func = append(c.file.Func, t)
-			return t, nil
-		}
-	}
-	// 有多个入参，生成结构体
-	{
-		t := new(execStructTPL)
+	if paramSegments != nil && len(paramSegments) < 2 {
+		t := new(execTPL)
 		t.tpl = tp
-		t.Stmt = function + "Model"
-		for _, s := range paramSegments {
-			var field [3]string
-			field[0] = snakeCaseToPascalCase(s.string)
-			field[1] = s.value
-			field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
-			t.Field = append(t.Field, field)
-		}
+		t.Param = append(t.Param, paramSegments[0].string)
 		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
+	// 有多个入参，生成结构体
+	t := new(execStructTPL)
+	t.tpl = tp
+	t.Struct = function + "Model"
+	for _, s := range paramSegments {
+		var field [3]string
+		field[0] = snakeCaseToPascalCase(s.string)
+		field[1] = s.value
+		field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
+		t.Field = append(t.Field, field)
+	}
+	c.file.Func = append(c.file.Func, t)
+	return t, nil
 }
 
 func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (TPL, error) {
@@ -298,44 +294,33 @@ func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (T
 		}
 	}
 	// 公共模板
-	var tp tpl
-	tp.Sql = _sql.String()
-	tp.Func = function
-	tp.Tx = tx
+	var qt queryTPL
+	qt.Sql = _sql.String()
+	qt.Func = function
+	qt.Tx = tx
+	qt.NullField = nullField
+	qt.Param = paramSegments.ToParam()
 	// 无法预编译的sql
 	if len(columnSegments) > 0 {
-		var tt querySqlTPL
-		tt.tpl = tp
-		for _, s := range columnSegments {
-			tt.Column = append(tt.Column, s.string)
-		}
-		for _, s := range paramSegments {
-			tt.Param = append(tt.Param, s.string)
-		}
-		tt.Segment = joinSegments(segments)
+		var qst querySqlTPL
+		qst.queryTPL = qt
+		qst.Column = columnSegments.ToParam()
+		qst.Segment = segments.ToTPL()
 		c.file.Strings = true
 		if isRow {
 			// 查询一行
 			if len(results) > 1 {
 				// 查询一行结构
 				t := new(querySqlStructRowTPL)
-				t.querySqlTPL = tt
-				t.NullField = nullField
-				for _, s := range results {
-					t.Field = append(t.Field, dbColumnToField(s, nullField))
-					t.Scan = append(t.Scan, dbColumnToScanTPL(s))
-				}
+				t.querySqlStructTPL.querySqlTPL = qst
+				t.querySqlStructTPL.InitFieldAndScan(results)
 				c.file.Func = append(c.file.Func, t)
 				return t, nil
 			}
 			// 查询一行单值
 			t := new(querySqlRowTPL)
-			t.querySqlTPL = tt
-			t.NullField = nullField
-			t.Scan = dbColumnToScanTPL(results[0])
-			if t.NullField {
-				t.NullField = t.Scan.NullType != ""
-			}
+			t.querySqlTPL = qst
+			t.InitScan(results[0])
 			c.file.Func = append(c.file.Func, t)
 			return t, nil
 		}
@@ -343,78 +328,50 @@ func (c *Code) Query(originalSql, function, tx string, isRow, nullField bool) (T
 		if len(results) > 1 {
 			// 查询多行结构
 			t := new(querySqlStructRowsTPL)
-			t.querySqlTPL = tt
-			t.NullField = nullField
-			for _, s := range results {
-				t.Field = append(t.Field, dbColumnToField(s, nullField))
-				t.Scan = append(t.Scan, dbColumnToScanTPL(s))
-			}
+			t.querySqlStructTPL.querySqlTPL = qst
+			t.querySqlStructTPL.InitFieldAndScan(results)
 			c.file.Func = append(c.file.Func, t)
 			return t, nil
 		}
 		// 查询多行单值
 		t := new(querySqlRowsTPL)
-		t.querySqlTPL = tt
-		t.NullField = nullField
-		t.Scan = dbColumnToScanTPL(results[0])
-		if t.NullField {
-			t.NullField = t.Scan.NullType != ""
-		}
+		t.querySqlTPL = qst
+		t.InitScan(results[0])
 		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
 	// 可以预编译的sql
-	tp.Stmt = c.file.StmtName(tp.Sql)
+	qt.Stmt = c.file.StmtName(qt.Sql)
 	// 只有一个结果，不生成结构体
 	if len(results) < 2 {
 		// 单行
 		if isRow {
 			t := new(queryRowTPL)
-			t.tpl = tp
-			t.NullField = nullField
-			t.Scan = dbColumnToScanTPL(results[0])
-			if t.NullField {
-				t.NullField = t.Scan.NullType != ""
-			}
-			for _, s := range paramSegments {
-				t.Param = append(t.Param, s.string)
-			}
+			t.queryTPL = qt
+			t.InitScan(results[0])
 			c.file.Func = append(c.file.Func, t)
 			return t, nil
 		}
 		// 多行
 		t := new(queryRowsTPL)
-		t.tpl = tp
-		t.NullField = nullField
-		t.Scan = dbColumnToScanTPL(results[0])
-		if t.NullField {
-			t.NullField = t.Scan.NullType != ""
-		}
-		for _, s := range paramSegments {
-			t.Param = append(t.Param, s.string)
-		}
+		t.queryTPL = qt
+		t.InitScan(results[0])
 		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
 	// 有多个结果，生成结构体
 	if isRow {
+		// 查询单行
 		t := new(queryStructRowTPL)
-		t.tpl = tp
-		t.NullField = nullField
-		for _, s := range results {
-			t.Field = append(t.Field, dbColumnToField(s, nullField))
-			t.Scan = append(t.Scan, dbColumnToScanTPL(s))
-		}
+		t.queryTPL = qt
+		t.InitFieldAndScan(results)
 		c.file.Func = append(c.file.Func, t)
 		return t, nil
 	}
+	// 查询多行
 	t := new(queryStructRowsTPL)
-	t.tpl = tp
-	t.NullField = nullField
-	for _, s := range results {
-		t.Field = append(t.Field, dbColumnToField(s, nullField))
-		t.Scan = append(t.Scan, dbColumnToScanTPL(s))
-	}
+	t.queryTPL = qt
+	t.InitFieldAndScan(results)
 	c.file.Func = append(c.file.Func, t)
 	return t, nil
 }

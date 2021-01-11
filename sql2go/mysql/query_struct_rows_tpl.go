@@ -15,7 +15,6 @@ type {{.Func}}Model struct {
 // {{.Sql}}
 func {{.Func}}({{.ParamTPL}}) ([]*{{.Func}}Model, error) {
 	rows, err := {{.StmtTPL}}.Query(
-		str.String(),
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -49,7 +48,6 @@ type {{.Func}}Model struct {
 // {{.Sql}}
 func {{.Func}}({{.ParamTPL}}) ([]*{{.Func}}Model, error) {
 	rows, err := {{.StmtTPL}}.Query(
-		str.String(),
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -92,8 +90,7 @@ func {{.Func}}({{.ParamTPL}}) ([]*{{.Func}}Model, error) {
 }`))
 
 type queryStructRowsTPL struct {
-	queryTPL
-	Scan []*scanTPL
+	queryStructTPL
 }
 
 func (t *queryStructRowsTPL) Execute(w io.Writer) error {

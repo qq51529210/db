@@ -82,8 +82,7 @@ func {{.Func}}({{.ParamTPL}}) (*{{.Func}}Model, error) {
 }`))
 
 type querySqlStructRowTPL struct {
-	querySqlTPL
-	Scan []*scanTPL
+	querySqlStructTPL
 }
 
 func (t *querySqlStructRowTPL) Execute(w io.Writer) error {

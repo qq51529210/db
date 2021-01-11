@@ -40,8 +40,11 @@ func (t *execStructTPL) ParamTPL() string {
 		s.WriteString(t.Tx)
 		s.WriteString(" *sql.Tx")
 	}
+	if s.Len() > 0 {
+		s.WriteString(", ")
+	}
 	// tx *sql.Tx, model *Struct
-	s.WriteString(", model *")
+	s.WriteString("model *")
 	s.WriteString(t.Struct)
 	return s.String()
 }

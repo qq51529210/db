@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"database/sql"
 	"io"
 	"text/template"
 )
@@ -54,4 +55,12 @@ func (t *queryRowTPL) Execute(w io.Writer) error {
 		return _queryNullRowTPL.Execute(w, t)
 	}
 	return _queryRowTPL.Execute(w, t)
+}
+
+func (t *queryRowTPL) InitScan(column *sql.ColumnType) {
+	t.Scan = dbColumnToScanTPL(column, t.NullField)
+	// 如果数据库字段不为null，那么NullField无效
+	if t.NullField {
+		t.NullField = t.Scan.NullType != ""
+	}
 }

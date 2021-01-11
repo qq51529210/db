@@ -16,7 +16,6 @@ type {{.Func}}Model struct {
 func {{.Func}}({{.ParamTPL}}) (*{{.Func}}Model, error) {
 	model := new({{.Func}}Model)
 	return model, {{.StmtTPL}}.QueryRow(
-		str.String(),
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -43,7 +42,6 @@ func {{.Func}}({{.ParamTPL}}) (*{{.Func}}Model, error) {
 	{{- end}}
 	model := new({{.Func}}Model)
 	err := {{.StmtTPL}}.QueryRow(
-		str.String(),
 		{{- range .Param}}
 		{{.}},
 		{{- end}}
@@ -74,8 +72,7 @@ func {{.Func}}({{.ParamTPL}}) (*{{.Func}}Model, error) {
 }`))
 
 type queryStructRowTPL struct {
-	queryTPL
-	Scan []*scanTPL
+	queryStructTPL
 }
 
 func (t *queryStructRowTPL) Execute(w io.Writer) error {

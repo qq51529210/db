@@ -5,10 +5,17 @@
   "file": "dao",
   "?": "db代码包名，空则使用文件名称",
   "pkg": "dao",
-  "?": "生成函数",
+  "?": "Query生成函数，如果有多个预编译变量，则会生成结构体（名称规则：func+Model）",
+  "?": "预编译变量表示：{生成（参数/结构字段）名称:值（随便给一个，用于测试sql和查询结果集结构）}，比如，数字类型给0，字符类型给''，where id={id:''}",
+  "?": "不确定变量表示：[生成参数名称:值（用于测试sql和查询结果集结构）]，一般用于分页，比如，order by [order:id] [sort:desc]",
+  "?": "预编译变量会转换为预编译的'?'",
+  "?": "如果有不确定变量，则生成运行时拼接sql",
+  "?": "每一条sql在生成代码前都会用数据库检测（使用给的值查询），如果出错，说明sql写错了",
   "query": [
     {
+      "?": "函数都不能重名（包内全局函数）",
       "func": "GetAppCount",
+      "?": "表示返回的结果是一行而不是多行数组",
       "row": true,
       "sql": [
         "select count(id) sum from app"
@@ -17,78 +24,24 @@
     {
       "func": "GetApps",
       "tx": "tx",
+      "?": "表示生成的结构体字段是sql.NullXXX（如果表的字段是nullable）",
+      "null": true,
       "sql": [
         "select * from app order by [order:id] [sort:desc]",
         "limit {begin:0},{total:0}"
       ]
     }
   ],
-  "func": [
+  "?": "Exec生成函数，如果有多个预编译变量，则会生成结构体（名称规则：func+Model）",
+  "?": "变量表示:{生成（参数/结构字段）名称:类型}，比如，where id={id:int64}，与query声明不同",
+  "?": "每一条sql在生成代码前都会用数据库检测（只是简单的测试是否能成功生成预编译）",
+  "?": "注意，变量类型不要写错了，否则生成的结构体字段类型不正确",
+  "exec": [
     {
-      "func": "GetAppCount",
-      "tx": "tx",
-      "row": true,
-      "null": true,
+      "?": "函数都不能重名（包内全局函数）",
+      "func": "CreateApp",
       "sql": [
-        "select count(id) from app"
-      ]
-    },
-    {
-      "func": "GetApp",
-      "tx": "tx",
-      "row": true,
-      "null": true,
-      "sql": [
-        "select * from app where id={id:0}"
-      ]
-    },
-    {
-      "name": "UserDeleteById",
-      "sql": [
-        "delete from user where id={id:int64}"
-      ]
-    },
-    {
-      "name": "UserInsert",
-      "sql": [
-        "insert into user(name,password,email,mobile,state)",
-        "values({name:string},{password:string},{email:string},{mobile:string},1)"
-      ]
-    },
-    {
-      "name": "UserUpdate",
-      "sql": [
-        "update user set password={password:string} where id={id:int64}"
-      ]
-    },
-    {
-      "name": "UserCount",
-      "sql": [
-        "select count(id) from user where id>{id:int64}"
-      ]
-    },
-    {
-      "name": "UserList",
-      "sql": [
-        "select * from user where id>{id:int64}"
-      ]
-    },
-    {
-      "name": "UserSearchByNameLike",
-      "sql": [
-        "select * from user where name like {name:string}",
-        "order by {order:id} limit {begin:int64}, {total:int64}"
-      ]
-    },
-    {
-      "name": "AppRoleAccessList",
-      "sql": [
-        "select id,name,access from",
-        "(select id,name from res where app_id={appId:int64}) a",
-        "left join",
-        "(select res_id,access from role_res where role_id={roleId:int64}) b",
-        "on a.id = b.res_id",
-        "order by {order:id} {sort:desc} limit {begin:int64},{total:int64}"
+        "insert into app values({id:int64},{name:string},{detail:string})"
       ]
     }
   ]
