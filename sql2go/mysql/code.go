@@ -235,7 +235,16 @@ func (c *Code) Exec(originalSql, function, tx string) (TPL, error) {
 	for _, s := range paramSegments {
 		var field [3]string
 		field[0] = snakeCaseToPascalCase(s.string)
-		field[1] = s.value
+		switch s.value {
+		case "nstring":
+			field[1] = "sql.NullString"
+		case "nint":
+			field[1] = "sql.NullInt64"
+		case "nfloat":
+			field[1] = "sql.NullFloat64"
+		default:
+			field[1] = s.value
+		}
 		field[2] = fmt.Sprintf("`json:\"%s\"`", pascalCaseToCamelCase(field[0]))
 		t.Field = append(t.Field, field)
 	}
